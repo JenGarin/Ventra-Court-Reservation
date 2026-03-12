@@ -1,0 +1,22 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+/* Keep overflow days (outside current calendar month) muted and never highlighted */
+.react-datepicker__day.outside-month-day {
+  color: #9ca3af !important;
+  background: transparent !important;
+  opacity: 0.55;
+  filter: blur(0.4px);
+  pointer-events: none;
+}
+
+.react-datepicker__day.outside-month-day:hover,
+.react-datepicker__day.outside-month-day.react-datepicker__day--selected,
+.react-datepicker__day.outside-month-day.react-datepicker__day--keyboard-selected,
+.react-datepicker__day.outside-month-day.react-datepicker__day--in-range,
+.react-datepicker__day.outside-month-day.react-datepicker__day--in-selecting-range {
+  background: transparent !important;
+  color: #9ca3af !important;
+  box-shadow: none !important;
+}

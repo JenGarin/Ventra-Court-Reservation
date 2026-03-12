@@ -1,0 +1,10 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@supabase/node-fetch": "npm:@supabase/node-fetch@^2.6.13"
+  },
+  "tasks": {
+    "dev": "deno run --allow-env --allow-net index.ts",
+    "test": "deno test --allow-env index.test.ts"
+  }
+}
