@@ -1,6 +1,12 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 export function TermsOfService() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const returnTo = new URLSearchParams(location.search).get('returnTo');
+  const safeReturnTo = returnTo && returnTo.startsWith('/') ? returnTo : null;
+  const sharedQuery = safeReturnTo ? `?returnTo=${encodeURIComponent(safeReturnTo)}` : '';
+
   return (
     <div
       className="min-h-screen flex items-start justify-center p-4 md:p-8 bg-cover bg-center relative"
@@ -19,11 +25,15 @@ export function TermsOfService() {
         </div>
 
         <div className="mt-8 flex gap-3">
-          <Link to="/signup" className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all">
-            Back to Sign Up
-          </Link>
+          <button
+            type="button"
+            onClick={() => (safeReturnTo ? navigate(safeReturnTo) : navigate(-1))}
+            className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all"
+          >
+            Back
+          </button>
           <Link
-            to="/privacy-policy"
+            to={`/privacy-policy${sharedQuery}`}
             className="px-4 py-2 rounded-lg border border-slate-700 text-slate-900 hover:bg-white/40 transition-all"
           >
             Privacy Policy

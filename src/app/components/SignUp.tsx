@@ -6,12 +6,19 @@ import { Mail, Lock, User, Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ACCOUNT_CREATED_NOTICE_KEY = 'ventra_account_created_notice';
+type PortalRole = 'admin' | 'coach' | 'player';
+
+const isPortalRole = (value: unknown): value is PortalRole => {
+  return value === 'admin' || value === 'coach' || value === 'player';
+};
 
 export function SignUp() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState<PortalRole>('player');
+  const [adminCode, setAdminCode] = useState('');
   const [coachProfile, setCoachProfile] = useState('');
   const [coachExpertise, setCoachExpertise] = useState('');
   const [verificationMethod, setVerificationMethod] = useState<'certification' | 'license' | 'experience' | 'other'>('certification');
@@ -27,8 +34,16 @@ export function SignUp() {
   const { signup, signInWithProvider } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
-  const selectedRole = (new URLSearchParams(location.search).get('role') || 'player') as 'admin' | 'coach' | 'player';
+  const returnTo = encodeURIComponent(`${location.pathname}${location.search}`);
+  const roleFromQuery = new URLSearchParams(location.search).get('role');
+  const roleFromQuerySafe = isPortalRole(roleFromQuery) ? roleFromQuery : null;
   const isCoachRole = selectedRole === 'coach';
+  const isAdminRole = selectedRole === 'admin';
+
+  React.useEffect(() => {
+    if (!roleFromQuerySafe) return;
+    setSelectedRole(roleFromQuerySafe);
+  }, [roleFromQuerySafe]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +54,10 @@ export function SignUp() {
     }
     if (password.trim().length < PASSWORD_MIN_LENGTH) {
       toast.error(`Password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
+      return;
+    }
+    if (isAdminRole && !adminCode.trim()) {
+      toast.error('Admin code is required to create an admin account.');
       return;
     }
     if (isCoachRole) {
@@ -58,6 +77,7 @@ export function SignUp() {
       const { success, message } = await signup(email, password, selectedRole, {
         name: name.trim(),
         phone: phone.trim(),
+        adminCode: isAdminRole ? adminCode.trim() : undefined,
         coachProfile: isCoachRole ? coachProfile.trim() : undefined,
         coachExpertise: isCoachRole
           ? coachExpertise
@@ -73,7 +93,7 @@ export function SignUp() {
       
       if (success) {
         if (isCoachRole) {
-          setCoachSubmissionMessage(message || 'Coach registration submitted. Wait for admin approval before signing in.');
+          setCoachSubmissionMessage(message || 'Your coach account request is under review by the administrator.');
           setCoachApplicationSubmitted(true);
         } else {
           const successMessage = message || 'Account created successfully! Please sign in.';
@@ -96,6 +116,10 @@ export function SignUp() {
   const handleSocialSignUp = async (provider: 'google' | 'facebook') => {
     if (isCoachRole) {
       toast.error('Coach registration requires manual verification details. Please complete the form.');
+      return;
+    }
+    if (selectedRole !== 'player') {
+      toast.error('Social sign-up is available for Player accounts only.');
       return;
     }
     setIsLoading(true);
@@ -150,6 +174,19 @@ export function SignUp() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
+          {isAdminRole && (
+            <div>
+              <label className="block text-sm mb-2 text-slate-900">Admin Code</label>
+              <input
+                type="password"
+                value={adminCode}
+                onChange={(e) => setAdminCode(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-400 bg-white/95 rounded-lg shadow-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Enter admin code"
+                required
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm mb-2 text-slate-900">Full Name</label>
             <div className="relative">
@@ -296,7 +333,20 @@ export function SignUp() {
               />
             </div>
             <label htmlFor="terms" className="text-base text-slate-900">
-              I agree to the <Link to="/terms-of-service" className="text-indigo-700 font-medium hover:text-indigo-900 hover:underline">Terms of Service</Link> and <Link to="/privacy-policy" className="text-indigo-700 font-medium hover:text-indigo-900 hover:underline">Privacy Policy</Link>
+              I agree to the{' '}
+              <Link
+                to={`/terms-of-service?returnTo=${returnTo}`}
+                className="text-indigo-700 font-medium hover:text-indigo-900 hover:underline"
+              >
+                Terms of Service
+              </Link>{' '}
+              and{' '}
+              <Link
+                to={`/privacy-policy?returnTo=${returnTo}`}
+                className="text-indigo-700 font-medium hover:text-indigo-900 hover:underline"
+              >
+                Privacy Policy
+              </Link>
             </label>
           </div>
 
@@ -309,37 +359,37 @@ export function SignUp() {
           </button>
         </form>
 
-        {!isCoachRole && (
-        <div className="my-4">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="h-px flex-1 bg-gray-300" />
-            <p className="text-base text-slate-900 text-center whitespace-nowrap">or sign up with</p>
-            <div className="h-px flex-1 bg-gray-300" />
+        {selectedRole === 'player' && !isCoachRole ? (
+          <div className="my-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-px flex-1 bg-gray-300" />
+              <p className="text-base text-slate-900 text-center whitespace-nowrap">or sign up with</p>
+              <div className="h-px flex-1 bg-gray-300" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleSocialSignUp('facebook')}
+                disabled={isLoading}
+                aria-label="Sign up with Facebook"
+                className="w-full border border-gray-300 bg-white text-gray-800 py-2.5 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <img src="/facebook.png" alt="Facebook" className="w-5 h-5" />
+                Facebook
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSocialSignUp('google')}
+                disabled={isLoading}
+                aria-label="Sign up with Google"
+                className="w-full border border-gray-300 bg-white text-gray-800 py-2.5 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <img src="/Google.png" alt="Google" className="w-5 h-5" />
+                Google
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => handleSocialSignUp('facebook')}
-              disabled={isLoading}
-              aria-label="Sign up with Facebook"
-              className="w-full border border-gray-300 bg-white text-gray-800 py-2.5 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-            >
-              <img src="/facebook.png" alt="Facebook" className="w-5 h-5" />
-              Facebook
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSocialSignUp('google')}
-              disabled={isLoading}
-              aria-label="Sign up with Google"
-              className="w-full border border-gray-300 bg-white text-gray-800 py-2.5 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-            >
-              <img src="/Google.png" alt="Google" className="w-5 h-5" />
-              Google
-            </button>
-          </div>
-        </div>
-        )}
+        ) : null}
 
         <div className="mt-4 text-center">
           <p className="text-slate-900 text-base">

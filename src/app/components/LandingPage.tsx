@@ -128,6 +128,12 @@ export function LandingPage() {
               <Link to="/login" className="text-sm font-semibold text-slate-600 hover:text-teal-600 transition-colors">
                 Log In
               </Link>
+              <Link
+                to="/quick-booking"
+                className="px-4 py-2 md:px-5 md:py-2.5 bg-white/80 text-teal-700 border border-teal-200 rounded-xl text-xs md:text-sm font-bold hover:bg-white transition-all shadow-sm hover:-translate-y-0.5 whitespace-nowrap"
+              >
+                Quick Booking
+              </Link>
               <Link 
                 to="/login" 
                 className="px-4 py-2 md:px-5 md:py-2.5 bg-teal-600 text-white rounded-xl text-xs md:text-sm font-bold hover:bg-teal-700 transition-all shadow-lg shadow-teal-200 hover:shadow-teal-300 hover:-translate-y-0.5 whitespace-nowrap"
@@ -630,12 +636,18 @@ export function LandingPage() {
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
         <RevealOnScroll className="max-w-4xl mx-auto px-6 text-center relative z-10">
             <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-6">Ready to get in the game?</h2>
-            <p className="text-xl text-teal-100 mb-10 max-w-2xl mx-auto">Join thousands of players and facility owners who trust Ventra for their sports management needs.</p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link 
-                    to="/login" 
-                    className="px-8 py-4 bg-white text-teal-600 rounded-xl font-bold text-lg hover:bg-teal-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
+             <p className="text-xl text-teal-100 mb-10 max-w-2xl mx-auto">Join thousands of players and facility owners who trust Ventra for their sports management needs.</p>
+             <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Link
+                    to="/quick-booking"
+                    className="px-8 py-4 bg-white text-teal-700 rounded-xl font-bold text-lg hover:bg-teal-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
                 >
+                    Quick Booking (No Account)
+                </Link>
+                 <Link 
+                     to="/login" 
+                     className="px-8 py-4 bg-white text-teal-600 rounded-xl font-bold text-lg hover:bg-teal-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
+                 >
                     Create Free Account
                 </Link>
                 <Link 
@@ -690,8 +702,8 @@ export function LandingPage() {
               <li><Link to="/login" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Sign In</Link></li>
               <li><Link to="/login" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Register</Link></li>
               <li><a href="#" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> About Us</a></li>
-              <li><a href="#" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Terms of Service</a></li>
+              <li><Link to="/privacy-policy?returnTo=%2F" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Privacy Policy</Link></li>
+              <li><Link to="/terms-of-service?returnTo=%2F" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Terms of Service</Link></li>
             </ul>
           </div>
         </div>

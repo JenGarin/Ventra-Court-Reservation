@@ -76,7 +76,7 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'staff', 'coach', 'player'] },
     { id: 'requests', label: 'Requests', icon: ListChecks, roles: ['admin', 'staff'] },
-    { id: 'booking', label: 'Book a Court', icon: Calendar, roles: ['admin', 'staff', 'coach', 'player'] },
+    { id: 'booking', label: 'Book a Court', icon: Calendar, roles: ['coach', 'player'] },
     { id: 'my-bookings', label: 'My Reservation', icon: Calendar, roles: ['player', 'coach'] },
     { id: 'history', label: 'History', icon: History, roles: ['player', 'coach'] },
     { id: 'hire-coach', label: 'Hire a Coach', icon: UserRoundPlus, roles: ['player'] },

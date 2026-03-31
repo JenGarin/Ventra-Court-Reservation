@@ -16,6 +16,23 @@ import {
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 
+const QUICK_BOOKING_LABEL = 'Quick Reservation / Senior-Friendly Booking';
+
+const parseQuickBookingNotes = (notes?: string) => {
+  if (!notes) return null;
+  if (!notes.includes(QUICK_BOOKING_LABEL)) return null;
+  const lines = notes.split('\n').map((l) => l.trim()).filter(Boolean);
+  const fullName = lines.find((l) => l.toLowerCase().startsWith('full name:'))?.slice('Full Name:'.length).trim();
+  const contactNumber = lines
+    .find((l) => l.toLowerCase().startsWith('contact number:'))
+    ?.slice('Contact Number:'.length)
+    .trim();
+  return {
+    fullName: fullName || null,
+    contactNumber: contactNumber || null,
+  };
+};
+
 export function PendingBookings() {
   const { bookings, users, courts, confirmBooking, cancelBooking } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,7 +52,9 @@ export function PendingBookings() {
   const filteredPendingBookings = allPendingBookings
     .filter(b => {
       const user = users.find(u => u.id === b.userId);
-      const matchesSearch = !searchTerm || (user?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const quick = parseQuickBookingNotes(b.notes);
+      const searchableName = quick?.fullName || user?.name || '';
+      const matchesSearch = !searchTerm || searchableName.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCourt = courtFilter === 'all' || b.courtId === courtFilter;
       
       let matchesDate = true;
@@ -219,6 +238,7 @@ export function PendingBookings() {
             {filteredPendingBookings.map((booking) => {
               const user = users.find(u => u.id === booking.userId);
               const court = courts.find(c => c.id === booking.courtId);
+              const quick = parseQuickBookingNotes(booking.notes);
               const isSelected = selectedBookings.includes(booking.id);
 
               return (
@@ -239,11 +259,24 @@ export function PendingBookings() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-slate-900 dark:text-white text-lg">{user?.name || 'Unknown User'}</h3>
-                        <Badge variant="secondary" className="capitalize">
-                          {user?.role}
-                        </Badge>
+                        <h3 className="font-bold text-slate-900 dark:text-white text-lg">
+                          {quick?.fullName || user?.name || 'Unknown User'}
+                        </h3>
+                        {quick ? (
+                          <Badge className="bg-teal-600 text-white hover:bg-teal-600">
+                            {QUICK_BOOKING_LABEL}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="capitalize">
+                            {user?.role || 'guest'}
+                          </Badge>
+                        )}
                       </div>
+                      {quick?.contactNumber ? (
+                        <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                          Contact: {quick.contactNumber}
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap gap-x-6 gap-y-2 mt-2 text-sm text-slate-500 dark:text-slate-400">
                         <div className="flex items-center gap-2">
                           <CalendarIcon size={16} className="text-teal-600" />

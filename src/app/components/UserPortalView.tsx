@@ -21,6 +21,7 @@ export function UserPortalView() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = currentUser?.role === 'admin';
+  const isStaff = currentUser?.role === 'staff';
 
   const recentlyFromPayment = useMemo(() => {
     try {
@@ -106,6 +107,32 @@ export function UserPortalView() {
     }
   };
 
+  const handlePreferencesClick = () => {
+    if (isAdmin) {
+      navigate('/settings');
+      return;
+    }
+    if (isStaff) {
+      navigate('/profile-settings');
+      return;
+    }
+    toast.info('Preferences are available in Profile Details.');
+    navigate('/profile-settings');
+  };
+
+  const handleSystemAccessClick = () => {
+    if (isAdmin || isStaff) {
+      navigate('/users');
+      return;
+    }
+    toast.info('Billing & payment is available under the Billing section.');
+    navigate('/billing');
+  };
+
+  const handleNotificationsClick = () => {
+    navigate('/notifications');
+  };
+
   return (
     <div className="min-h-screen bg-transparent p-6 space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col lg:flex-row gap-8">
@@ -157,19 +184,31 @@ export function UserPortalView() {
                 </div>
                 <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
               </button>
-              <button className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm">
+              <button
+                type="button"
+                onClick={handlePreferencesClick}
+                className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm"
+              >
                 <div className="flex items-center gap-3">
                   <Settings size={18} /> {isAdmin ? 'Admin Preferences' : 'Preferences'}
                 </div>
                 <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
               </button>
-              <button className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm">
+              <button
+                type="button"
+                onClick={handleSystemAccessClick}
+                className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm"
+              >
                 <div className="flex items-center gap-3">
                   <CreditCard size={18} /> {isAdmin ? 'System Access' : 'Billing & Payment'}
                 </div>
                 <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
               </button>
-              <button className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm">
+              <button
+                type="button"
+                onClick={handleNotificationsClick}
+                className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-300 font-medium text-sm"
+              >
                 <div className="flex items-center gap-3">
                   <Bell size={18} /> Notifications
                 </div>

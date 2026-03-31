@@ -5,6 +5,8 @@ import * as kv from "./kv_store.tsx";
 
 type Role = "admin" | "staff" | "coach" | "player";
 const ROLE_VALUES: Role[] = ["admin", "staff", "coach", "player"];
+type UserStatus = "active" | "pending";
+const USER_STATUS_VALUES: UserStatus[] = ["active", "pending"];
 type AuthMode = "mock" | "supabase";
 
 let supabaseCreateClientFactory: ((url: string, key: string) => any) | null = null;
@@ -26,6 +28,7 @@ const authMode = (): AuthMode => {
 const supabaseUrl = () => String(Deno.env.get("SUPABASE_URL") || "").trim();
 const supabaseAnonKey = () => String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
 const supabaseServiceRoleKey = () => String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
+const adminSignupCode = () => String(Deno.env.get("ADMIN_SIGNUP_CODE") || "").trim();
 
 const hasSupabaseAuthEnv = () => {
   try {
@@ -68,6 +71,7 @@ type ApiUser = {
   email: string;
   name: string;
   role: Role;
+  status: UserStatus;
   phone?: string;
   avatar?: string;
   skillLevel?: string;
@@ -91,6 +95,7 @@ type ApiCourt = {
   hourlyRate: number;
   peakHourRate?: number;
   status: string;
+  imageUrl?: string;
   operatingHours: { start: string; end: string };
 };
 
@@ -269,6 +274,7 @@ type ApiRateLimitRecord = {
 };
 
 const isRole = (value: string): value is Role => ROLE_VALUES.includes(value as Role);
+const isUserStatus = (value: string): value is UserStatus => USER_STATUS_VALUES.includes(value as UserStatus);
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const allowPrivilegedSignup = () => {
   try {
@@ -322,6 +328,7 @@ const mapCoachRegistrationToQueueUser = (registration: ApiCoachRegistration): Ap
   email: registration.email,
   name: registration.name,
   role: "coach",
+  status: registration.status === "pending" ? "pending" : "active",
   phone: registration.phone,
   coachProfile: registration.coachProfile,
   coachExpertise: registration.coachExpertise || [],
@@ -446,6 +453,10 @@ const rateLimitConfig = (scope: string, fallback: { max: number; windowSeconds: 
     max: readPositiveIntEnv(`RATE_LIMIT_${prefix}_MAX`, fallback.max),
     windowSeconds: readPositiveIntEnv(`RATE_LIMIT_${prefix}_WINDOW_SEC`, fallback.windowSeconds),
   };
+};
+const roleMatchesExpected = (actual: Role, expected: Role) => {
+  if (expected === "admin") return actual === "admin" || actual === "staff";
+  return actual === expected;
 };
 const requestClientKey = (c: any, userId?: string) => {
   if (userId) return `user:${userId}`;
@@ -676,10 +687,10 @@ const seedUsers = async (): Promise<ApiUser[]> => {
   if (existing.length > 0) return existing as ApiUser[];
 
   const users: ApiUser[] = [
-    { id: "admin-1", email: "admin@court.com", name: "Admin User", role: "admin", createdAt: nowIso() },
-    { id: "staff-1", email: "staff@court.com", name: "Staff Member", role: "staff", createdAt: nowIso() },
-    { id: "coach-1", email: "coach@court.com", name: "Coach Mike", role: "coach", createdAt: nowIso() },
-    { id: "player-1", email: "player@court.com", name: "Alex Johnson", role: "player", createdAt: nowIso() },
+    { id: "admin-1", email: "admin@court.com", name: "Admin User", role: "admin", status: "active", createdAt: nowIso() },
+    { id: "staff-1", email: "staff@court.com", name: "Staff Member", role: "staff", status: "active", createdAt: nowIso() },
+    { id: "coach-1", email: "coach@court.com", name: "Coach Mike", role: "coach", status: "active", createdAt: nowIso() },
+    { id: "player-1", email: "player@court.com", name: "Alex Johnson", role: "player", status: "active", createdAt: nowIso() },
   ];
   await kv.mset(users.map((u) => `user:${u.id}`), users);
   return users;
@@ -1460,29 +1471,27 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
     const existing = (await kv.get(`user:${authUserId}`)) as ApiUser | null;
     const nameFromMetadata = String(authUser.user_metadata?.name || "").trim();
     const phoneFromMetadata = String(authUser.user_metadata?.phone || "").trim();
-    const roleFromMetadata = String(authUser.user_metadata?.role || "").trim().toLowerCase();
-    const safeMetadataRole = isRole(roleFromMetadata) ? (roleFromMetadata as Role) : "player";
 
     let user: ApiUser;
     if (existing) {
-      user = existing;
+      user = {
+        ...existing,
+        status: isUserStatus(String((existing as any)?.status || "")) ? (existing as any).status : "active",
+      };
     } else {
       user = {
         id: authUserId,
         email,
         name: nameFromMetadata || email.split("@")[0] || "User",
-        role: safeMetadataRole,
+        role: "player",
+        status: "active",
         phone: phoneFromMetadata || undefined,
         createdAt: nowIso(),
       };
-      // Prevent role escalation via user metadata.
-      if ((user.role === "admin" || user.role === "staff") && !allowPrivilegedSignup()) {
-        user.role = "player";
-      }
       await kv.set(`user:${user.id}`, user);
     }
 
-    if (expectedRole && user.role !== expectedRole) {
+    if (expectedRole && !roleMatchesExpected(user.role, expectedRole)) {
       await writeAuditLog({
         action: "auth_login_failed",
         entityType: "auth",
@@ -1492,6 +1501,18 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
         metadata: { reason: "role_mismatch", provider: "supabase", expectedRole, requestId: requestIdFromContext(c) },
       });
       return jsonErr(c, 403, "ROLE_MISMATCH", `This account is not a ${expectedRole} account.`);
+    }
+
+    if (user.role === "coach" && user.status === "pending") {
+      await writeAuditLog({
+        action: "auth_login_failed",
+        entityType: "auth",
+        entityId: user.id,
+        actorId: user.id,
+        actorRole: user.role,
+        metadata: { reason: "coach_pending", provider: "supabase", requestId: requestIdFromContext(c) },
+      });
+      return jsonErr(c, 403, "COACH_PENDING", "Your coach account is awaiting approval.");
     }
 
     await writeAuditLog({
@@ -1561,7 +1582,7 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
       // ignore migration issues; login should still succeed
     }
   }
-  if (expectedRole && user.role !== expectedRole) {
+  if (expectedRole && !roleMatchesExpected(user.role, expectedRole)) {
     await writeAuditLog({
       action: "auth_login_failed",
       entityType: "auth",
@@ -1571,6 +1592,18 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
       metadata: { reason: "role_mismatch", expectedRole, requestId: requestIdFromContext(c) },
     });
     return jsonErr(c, 403, "ROLE_MISMATCH", `This account is not a ${expectedRole} account.`);
+  }
+  const normalizedStatus = isUserStatus(String((user as any)?.status || "")) ? (user as any).status : "active";
+  if (user.role === "coach" && normalizedStatus === "pending") {
+    await writeAuditLog({
+      action: "auth_login_failed",
+      entityType: "auth",
+      entityId: user.id,
+      actorId: user.id,
+      actorRole: user.role,
+      metadata: { reason: "coach_pending", requestId: requestIdFromContext(c) },
+    });
+    return jsonErr(c, 403, "COACH_PENDING", "Your coach account is awaiting approval.");
   }
   await writeAuditLog({
     action: "auth_login_succeeded",
@@ -1583,7 +1616,7 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
   return jsonOk(c, {
     accessToken: `mock-access-${user.id}`,
     refreshToken: `mock-refresh-${user.id}`,
-    user,
+    user: { ...user, status: normalizedStatus },
   });
 });
 
@@ -1614,7 +1647,9 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
     return jsonErr(c, 400, "VALIDATION_ERROR", "Invalid role.");
   }
   const requestedRole = roleRaw as Role;
-  if ((requestedRole === "admin" || requestedRole === "staff") && !allowPrivilegedSignup()) {
+  const suppliedAdminCode = String(body?.adminCode || "").trim();
+
+  if (requestedRole === "staff" && !allowPrivilegedSignup()) {
     await writeAuditLog({
       action: "auth_signup_failed",
       entityType: "auth",
@@ -1623,9 +1658,28 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       actorRole: "player",
       metadata: { reason: "privileged_role_forbidden", role: requestedRole, email, requestId: requestIdFromContext(c) },
     });
-    return jsonErr(c, 403, "FORBIDDEN", "Public signup cannot create admin or staff accounts.");
+    return jsonErr(c, 403, "FORBIDDEN", "Public signup cannot create staff accounts.");
   }
+  if (requestedRole === "admin") {
+    const expectedCode = adminSignupCode();
+    if (!expectedCode) {
+      return jsonErr(c, 403, "FORBIDDEN", "Admin signup is disabled. Please contact the administrator.");
+    }
+    if (!suppliedAdminCode || suppliedAdminCode !== expectedCode) {
+      await writeAuditLog({
+        action: "auth_signup_failed",
+        entityType: "auth",
+        entityId: email || "unknown",
+        actorId: "anonymous",
+        actorRole: "player",
+        metadata: { reason: "invalid_admin_code", email, requestId: requestIdFromContext(c) },
+      });
+      return jsonErr(c, 403, "FORBIDDEN", "Invalid admin code.");
+    }
+  }
+
   const role: Role = requestedRole;
+  const status: UserStatus = role === "coach" ? "pending" : "active";
   const users = (await kv.getByPrefix("user:")) as ApiUser[];
   if (users.some((u) => u.email.toLowerCase() === email)) {
     await writeAuditLog({
@@ -1638,80 +1692,12 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
     });
     return jsonErr(c, 409, "CONFLICT", "Email already exists.");
   }
+  const name = String(body?.name || "").trim() || email.split("@")[0] || "User";
+  const phone = String(body?.phone || "").trim();
+  const coachDraft = role === "coach" ? parseCoachRegistrationDraft(body) : null;
   if (role === "coach") {
-    const draft = parseCoachRegistrationDraft(body);
-    const draftError = validateCoachRegistrationDraft(draft);
+    const draftError = validateCoachRegistrationDraft(coachDraft!);
     if (draftError) return jsonErr(c, 400, "VALIDATION_ERROR", draftError);
-    const passwordHash = await hashPassword(password);
-    const registrations = await getCoachRegistrations();
-    const existingPending = findLatestCoachRegistrationByEmail(registrations, email, ["pending"]);
-    if (existingPending) {
-      return jsonErr(c, 409, "CONFLICT", "A coach registration request for this email is already pending.");
-    }
-    const existingRejected = findLatestCoachRegistrationByEmail(registrations, email, ["rejected"]);
-    if (existingRejected) {
-      const updatedRegistration: ApiCoachRegistration = {
-        ...existingRejected,
-        password: undefined,
-        passwordHash,
-        name: draft.name,
-        phone: draft.phone,
-        coachProfile: draft.coachProfile,
-        coachExpertise: draft.coachExpertise,
-        verificationMethod: draft.verificationMethod as ApiCoachRegistration["verificationMethod"],
-        verificationDocumentName: draft.verificationDocumentName,
-        verificationId: draft.verificationId,
-        verificationNotes: draft.verificationNotes,
-        status: "pending",
-        reviewNote: undefined,
-        updatedAt: nowIso(),
-      };
-      await kv.set(`coachreg:${updatedRegistration.id}`, updatedRegistration);
-      await writeAuditLog({
-        action: "coach_registration_resubmitted",
-        entityType: "coach_registration",
-        entityId: updatedRegistration.id,
-        actorId: "anonymous",
-        actorRole: "player",
-        metadata: { email, requestId: requestIdFromContext(c) },
-      });
-      return jsonOk(c, {
-        pending: true,
-        role: "coach",
-        message: "Coach registration resubmitted and pending admin verification.",
-      });
-    }
-    const registration: ApiCoachRegistration = {
-      id: id(),
-      email,
-      password: undefined,
-      passwordHash,
-      name: draft.name,
-      phone: draft.phone,
-      coachProfile: draft.coachProfile,
-      coachExpertise: draft.coachExpertise,
-      verificationMethod: draft.verificationMethod as ApiCoachRegistration["verificationMethod"],
-      verificationDocumentName: draft.verificationDocumentName,
-      verificationId: draft.verificationId,
-      verificationNotes: draft.verificationNotes,
-      status: "pending",
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
-    await kv.set(`coachreg:${registration.id}`, registration);
-    await writeAuditLog({
-      action: "coach_registration_submitted",
-      entityType: "coach_registration",
-      entityId: registration.id,
-      actorId: "anonymous",
-      actorRole: "player",
-      metadata: { email, requestId: requestIdFromContext(c) },
-    });
-    return jsonOk(c, {
-      pending: true,
-      role: "coach",
-      message: "Coach registration submitted and pending admin verification.",
-    });
   }
 
   if (authMode() === "supabase") {
@@ -1723,8 +1709,6 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
         "Supabase auth mode requires SUPABASE_URL and SUPABASE_ANON_KEY to be set.",
       );
     }
-    const name = String(body?.name || "").trim() || email.split("@")[0] || "User";
-    const phone = String(body?.phone || "").trim();
     const supabase = await supabaseAnonClient();
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -1734,6 +1718,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
           name,
           phone,
           role,
+          status,
         },
       },
     });
@@ -1766,7 +1751,18 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       email,
       name,
       role,
+      status,
       phone: phone || undefined,
+      coachProfile: role === "coach" ? coachDraft!.coachProfile : undefined,
+      coachExpertise: role === "coach" ? (coachDraft!.coachExpertise || []) : undefined,
+      coachVerificationStatus: role === "coach" ? "pending" : undefined,
+      coachVerificationMethod: role === "coach"
+        ? (coachDraft!.verificationMethod as ApiUser["coachVerificationMethod"])
+        : undefined,
+      coachVerificationDocumentName: role === "coach" ? coachDraft!.verificationDocumentName : undefined,
+      coachVerificationId: role === "coach" ? coachDraft!.verificationId : undefined,
+      coachVerificationNotes: role === "coach" ? coachDraft!.verificationNotes : undefined,
+      coachVerificationSubmittedAt: role === "coach" ? nowIso() : undefined,
       createdAt: nowIso(),
     };
     await kv.set(`user:${created.id}`, created);
@@ -1778,13 +1774,32 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       actorRole: created.role,
       metadata: { provider: "supabase", email, roleAssigned: role, requestedRole, requestId: requestIdFromContext(c) },
     });
+    if (role === "coach") {
+      return jsonOk(c, {
+        pending: true,
+        role: "coach",
+        message: "Your coach account request is under review by the administrator.",
+      });
+    }
     return jsonOk(c, created);
   }
   const newUser: ApiUser = {
     id: id(),
     email,
-    name: email.split("@")[0],
+    name,
     role,
+    status,
+    phone: phone || undefined,
+    coachProfile: role === "coach" ? coachDraft!.coachProfile : undefined,
+    coachExpertise: role === "coach" ? (coachDraft!.coachExpertise || []) : undefined,
+    coachVerificationStatus: role === "coach" ? "pending" : undefined,
+    coachVerificationMethod: role === "coach"
+      ? (coachDraft!.verificationMethod as ApiUser["coachVerificationMethod"])
+      : undefined,
+    coachVerificationDocumentName: role === "coach" ? coachDraft!.verificationDocumentName : undefined,
+    coachVerificationId: role === "coach" ? coachDraft!.verificationId : undefined,
+    coachVerificationNotes: role === "coach" ? coachDraft!.verificationNotes : undefined,
+    coachVerificationSubmittedAt: role === "coach" ? nowIso() : undefined,
     createdAt: nowIso(),
   };
   await kv.set(`user:${newUser.id}`, newUser);
@@ -1797,6 +1812,13 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
     actorRole: newUser.role,
     metadata: { email: newUser.email, roleAssigned: role, requestedRole, requestId: requestIdFromContext(c) },
   });
+  if (role === "coach") {
+    return jsonOk(c, {
+      pending: true,
+      role: "coach",
+      message: "Your coach account request is under review by the administrator.",
+    });
+  }
   return jsonOk(c, newUser);
 });
 
@@ -2358,6 +2380,7 @@ app.post(`${API_BASE}/admin/coaches/:id/verification/approve`, async (c) => {
       email: registration.email,
       name: registration.name,
       role: "coach",
+      status: "active",
       phone: registration.phone,
       coachProfile: registration.coachProfile,
       coachExpertise: registration.coachExpertise || [],
@@ -2414,6 +2437,7 @@ app.post(`${API_BASE}/admin/coaches/:id/verification/approve`, async (c) => {
   const updated: ApiUser = {
     ...coach,
     role: "coach",
+    status: "active",
     coachVerificationStatus: "verified",
     coachVerificationNotes: String(body?.notes || coach.coachVerificationNotes || "").trim() || undefined,
   };
@@ -2464,6 +2488,7 @@ app.post(`${API_BASE}/admin/coaches/:id/verification/reject`, async (c) => {
   const updated: ApiUser = {
     ...coach,
     role: coach.role === "admin" || coach.role === "staff" ? coach.role : "player",
+    status: "active",
     coachVerificationStatus: "rejected",
     coachVerificationNotes: reason || coach.coachVerificationNotes,
   };
@@ -3003,6 +3028,7 @@ app.post(`${API_BASE}/courts`, async (c) => {
     hourlyRate: Number(body?.hourlyRate || 0),
     peakHourRate: body?.peakHourRate ? Number(body.peakHourRate) : undefined,
     status: body?.status || "active",
+    imageUrl: body?.imageUrl ? String(body.imageUrl) : undefined,
     operatingHours: body?.operatingHours || { start: "07:00", end: "22:00" },
   };
   await kv.set(`court:${court.id}`, court);
@@ -3137,6 +3163,113 @@ app.get(`${API_BASE}/bookings/history`, async (c) => {
       cancelled: scoped.filter((b) => b.status === "cancelled").length,
     },
   });
+});
+
+app.post(`${API_BASE}/bookings/quick`, async (c) => {
+  const bookingLimit = rateLimitConfig("quick_booking_create", { max: 10, windowSeconds: 60 });
+  const bookingRateErr = await enforceRateLimit(c, {
+    scope: "quick_booking_create",
+    key: requestClientKey(c),
+    max: bookingLimit.max,
+    windowSeconds: bookingLimit.windowSeconds,
+  });
+  if (bookingRateErr) return bookingRateErr;
+
+  const body = await c.req.json().catch(() => ({}));
+  const fullName = String(body?.fullName || "").trim();
+  const contactNumber = String(body?.contactNumber || "").trim();
+  const courtId = String(body?.courtId || "");
+  const date = String(body?.date || "");
+  const startTime = String(body?.startTime || "");
+  const endTime = String(body?.endTime || "");
+  const duration = Number(body?.duration || 0);
+  const type = String(body?.type || "private");
+  const amount = Number(body?.amount ?? 0);
+
+  if (!fullName) return jsonErr(c, 400, "VALIDATION_ERROR", "fullName is required.");
+  if (!contactNumber) return jsonErr(c, 400, "VALIDATION_ERROR", "contactNumber is required.");
+  if (!courtId || !date || !startTime || !endTime || !duration) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "courtId, date, startTime, endTime, and duration are required.");
+  }
+  if (!isValidDate(date) || !isValidTime(startTime) || !isValidTime(endTime)) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "Invalid date or time format.");
+  }
+  if (minutesBetween(startTime, endTime) <= 0) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "endTime must be later than startTime.");
+  }
+  if (!isValidBookingType(type)) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "Invalid booking type.");
+  }
+  if (duration <= 0) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "Duration must be a positive number.");
+  }
+  if (duration !== minutesBetween(startTime, endTime)) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "Duration must match startTime and endTime.");
+  }
+  if (!isValidCurrencyAmount(amount)) {
+    return jsonErr(c, 400, "VALIDATION_ERROR", "amount must be a non-negative number with up to 2 decimal places.");
+  }
+
+  const court = (await kv.get(`court:${courtId}`)) as ApiCourt | null;
+  if (!court) return jsonErr(c, 404, "NOT_FOUND", "Court not found.");
+  if (!isWithinOperatingHours(startTime, endTime, court.operatingHours)) {
+    return jsonErr(c, 409, "CONFLICT", "Booking time is outside court operating hours.");
+  }
+
+  const activeHolds = await getActiveBookingHolds(courtId, date);
+  const holdConflict = activeHolds.find((hold) => overlaps(hold.startTime, hold.endTime, startTime, endTime));
+  if (holdConflict) {
+    return jsonErr(c, 409, "CONFLICT", "Time slot is temporarily held by another user.");
+  }
+
+  const QUICK_LABEL = "Quick Reservation / Senior-Friendly Booking";
+  const notes = [QUICK_LABEL, `Full Name: ${fullName}`, `Contact Number: ${contactNumber}`].join("\n");
+  const guestUserId = "quick-guest";
+  const existingGuest = (await kv.get(`user:${guestUserId}`)) as ApiUser | null;
+  if (!existingGuest) {
+    await kv.set(`user:${guestUserId}`, {
+      id: guestUserId,
+      email: "quick-booking@guest.local",
+      name: "Quick Reservation",
+      role: "player",
+      status: "active",
+      createdAt: nowIso(),
+    } satisfies ApiUser);
+  }
+
+  const payload: ApiBooking = {
+    id: id(),
+    courtId,
+    userId: guestUserId,
+    type: type as ApiBooking["type"],
+    date,
+    startTime,
+    endTime,
+    duration,
+    status: "pending",
+    paymentStatus: "unpaid",
+    amount,
+    players: [],
+    maxPlayers: 4,
+    notes,
+    checkedIn: false,
+    receiptToken: id(),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+
+  const all = (await kv.getByPrefix("booking:")) as ApiBooking[];
+  const conflict = all.find(
+    (b) =>
+      b.courtId === payload.courtId &&
+      b.date === payload.date &&
+      b.status !== "cancelled" &&
+      overlaps(b.startTime, b.endTime, payload.startTime, payload.endTime),
+  );
+  if (conflict) return jsonErr(c, 409, "CONFLICT", "Time slot conflict detected.");
+
+  await kv.set(`booking:${payload.id}`, payload);
+  return jsonOk(c, okPayload(payload));
 });
 
 app.get(`${API_BASE}/bookings/:id`, async (c) => {
@@ -4845,14 +4978,16 @@ app.get(`${API_BASE}/bookings/available-slots`, async (c) => {
   if (!courtId || !date) return jsonErr(c, 400, "VALIDATION_ERROR", "courtId and date are required.");
   if (!isValidDate(date)) return jsonErr(c, 400, "VALIDATION_ERROR", "date must be YYYY-MM-DD.");
   if (!isValidBookingType(bookingType)) return jsonErr(c, 400, "VALIDATION_ERROR", "Invalid bookingType.");
+  const facility = await getFacilityConfig();
   const court = (await kv.get(`court:${courtId}`)) as ApiCourt | null;
   if (!court) return jsonErr(c, 404, "NOT_FOUND", "Court not found.");
   const bookings = (await kv.getByPrefix("booking:")) as ApiBooking[];
   const holds = await getActiveBookingHolds(courtId, date);
   const open = toMinutes(court.operatingHours.start);
   const close = toMinutes(court.operatingHours.end);
+  const step = Math.max(15, Number(facility.bookingInterval || 60));
   const slots: string[] = [];
-  for (let minutes = open; minutes < close; minutes += 60) {
+  for (let minutes = open; minutes < close; minutes += step) {
     const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
     const mm = String(minutes % 60).padStart(2, "0");
     const time = `${hh}:${mm}`;
@@ -4872,7 +5007,7 @@ app.get(`${API_BASE}/bookings/available-slots`, async (c) => {
         if (totalPlayers >= 4) isAvailable = false;
       }
     }
-    const slotEndMinutes = minutes + 60;
+    const slotEndMinutes = minutes + step;
     const slotStart = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
     const slotEnd = `${String(Math.floor(slotEndMinutes / 60)).padStart(2, "0")}:${String(slotEndMinutes % 60).padStart(
       2,

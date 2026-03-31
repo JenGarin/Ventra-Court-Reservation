@@ -8,8 +8,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useApp } from '@/context/AppContext';
 import { LogIn, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { toast } from 'sonner';
 
 const ACCOUNT_CREATED_NOTICE_KEY = 'ventra_account_created_notice';
+type PortalRole = 'admin' | 'coach' | 'player';
+
+const isPortalRole = (value: unknown): value is PortalRole => {
+  return value === 'admin' || value === 'coach' || value === 'player';
+};
 
 export function Login() {
   const [email, setEmail] = useState(localStorage.getItem('rememberedEmail') || '');
@@ -24,14 +30,18 @@ export function Login() {
   const location = useLocation();
   const [rememberMe, setRememberMe] = useState(!!localStorage.getItem('rememberedEmail'));
   const roleFromQuery = new URLSearchParams(location.search).get('role');
-  const selectedRole =
-    roleFromQuery ||
-    (location.state as { role?: string } | null)?.role;
+  const selectedRoleRaw = roleFromQuery || (location.state as { role?: string } | null)?.role || '';
+  const selectedRole = isPortalRole(selectedRoleRaw) ? selectedRoleRaw : null;
   const authError = (location.state as { authError?: string } | null)?.authError;
   const accountCreatedMessage = (location.state as { accountCreatedMessage?: string } | null)?.accountCreatedMessage;
   const roleLabel = selectedRole ? selectedRole.toLowerCase() : 'player';
   const roleArticle = roleLabel === 'admin' ? 'an' : 'a';
   const pendingOauthConfirmation = localStorage.getItem('ventra_oauth_confirmation_pending');
+
+  useEffect(() => {
+    if (selectedRole) return;
+    navigate('/login', { replace: true, state: { authError: 'Please choose an account type first.' } });
+  }, [navigate, selectedRole]);
 
   useEffect(() => {
     if (!authError) return;
@@ -61,7 +71,11 @@ export function Login() {
     setLoading(true);
 
     try {
-      const result = await login(email, password, selectedRole as 'admin' | 'coach' | 'player' | undefined);
+      if (!selectedRole) {
+        setError('Please choose an account type first.');
+        return;
+      }
+      const result = await login(email, password, selectedRole);
       if (result.success) {
         if (rememberMe) {
           localStorage.setItem('rememberedEmail', email);
@@ -70,7 +84,11 @@ export function Login() {
         }
         navigate('/dashboard');
       } else {
-        setError(result.message || 'Invalid credentials. Please check your email and password.');
+        const nextMessage = result.message || 'Invalid credentials. Please check your email and password.';
+        setError(nextMessage);
+        if (result.message) {
+          toast.error(result.message);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');

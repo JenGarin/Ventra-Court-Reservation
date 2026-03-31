@@ -1,5 +1,6 @@
 // User & Authentication Types
 export type UserRole = 'admin' | 'staff' | 'coach' | 'player';
+export type UserStatus = 'active' | 'pending';
 
 export interface User {
   id: string;
@@ -7,6 +8,7 @@ export interface User {
   name: string;
   phone: string;
   role: UserRole;
+  status: UserStatus;
   skillLevel?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
   coachProfile?: string;
   coachExpertise?: string[];
@@ -35,6 +37,7 @@ export interface Court {
   hourlyRate: number;
   peakHourRate?: number;
   status: CourtStatus;
+  imageUrl?: string;
   operatingHours: {
     start: string;
     end: string;

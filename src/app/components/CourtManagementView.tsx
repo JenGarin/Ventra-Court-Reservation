@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { toast } from 'sonner';
 import { cn } from '@/app/components/ui/utils';
+import { useNavigate } from 'react-router-dom';
 import { 
   Plus, 
   MoreVertical, 
@@ -27,7 +28,8 @@ function getCourtImage(name: string) {
 }
 
 export function CourtManagementView() {
-  const { courts, addCourt, updateCourt, deleteCourt, bookings, users } = useApp();
+  const { courts, addCourt, updateCourt, deleteCourt, bookings, users, currentUser } = useApp();
+  const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingScheduleId, setViewingScheduleId] = useState<string | null>(null);
@@ -39,6 +41,7 @@ export function CourtManagementView() {
     status: 'active' | 'maintenance' | 'disabled';
     hourlyRate: number;
     peakHourRate: number;
+    imageUrl: string;
     operatingHours: { start: string; end: string };
   }>({
     name: '',
@@ -48,6 +51,7 @@ export function CourtManagementView() {
     status: 'active',
     hourlyRate: 500,
     peakHourRate: 700,
+    imageUrl: '',
     operatingHours: { start: '06:00', end: '22:00' }
   });
 
@@ -60,6 +64,7 @@ export function CourtManagementView() {
       status: 'active',
       hourlyRate: 500,
       peakHourRate: 700,
+      imageUrl: '',
       operatingHours: { start: '06:00', end: '22:00' }
     });
     setEditingId(null);
@@ -76,6 +81,7 @@ export function CourtManagementView() {
       status: court.status as 'active' | 'maintenance' | 'disabled',
       hourlyRate: Number(court.hourlyRate) || 500,
       peakHourRate: Number(court.peakHourRate || court.hourlyRate) || 700,
+      imageUrl: court.imageUrl || '',
       operatingHours: court.operatingHours || { start: '06:00', end: '22:00' }
     });
     setIsModalOpen(true);
@@ -95,6 +101,7 @@ export function CourtManagementView() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const normalizedImageUrl = formData.imageUrl.trim();
       const courtData = {
         name: formData.name,
         courtNumber: formData.courtNumber,
@@ -103,6 +110,7 @@ export function CourtManagementView() {
         status: formData.status,
         hourlyRate: Number(formData.hourlyRate),
         peakHourRate: Number(formData.peakHourRate),
+        imageUrl: normalizedImageUrl ? normalizedImageUrl : (editingId ? '' : undefined),
         operatingHours: formData.operatingHours
       };
 
@@ -117,6 +125,36 @@ export function CourtManagementView() {
     } catch (error) {
       toast.error(editingId ? 'Failed to update court' : 'Failed to add court');
     }
+  };
+
+  const handleEditSystemRules = () => {
+    if (currentUser?.role !== 'admin') {
+      toast.error('Only admins can edit system rules.');
+      return;
+    }
+    navigate('/settings');
+  };
+
+  const handleImageSelected = (file: File | null) => {
+    if (!file) {
+      setFormData((prev) => ({ ...prev, imageUrl: '' }));
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        toast.error('Failed to read the selected image.');
+        return;
+      }
+      setFormData((prev) => ({ ...prev, imageUrl: result }));
+    };
+    reader.onerror = () => toast.error('Failed to read the selected image.');
+    reader.readAsDataURL(file);
   };
 
   const handleToggleActive = async (court: Court) => {
@@ -150,7 +188,7 @@ export function CourtManagementView() {
           <div key={court.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden group shadow-sm hover:shadow-md transition-all">
             <div className="relative h-48">
               <ImageWithFallback 
-                src={getCourtImage(court.name)}
+                src={court.imageUrl || getCourtImage(court.name)}
                 alt={court.name}
                 className="w-full h-full object-cover"
               />
@@ -248,7 +286,11 @@ export function CourtManagementView() {
             <h2 className="text-2xl font-bold mb-2">Global Facility Settings</h2>
             <p className="text-teal-200 text-sm">Manage opening hours, booking intervals, and peak pricing rules for all courts.</p>
           </div>
-          <button className="bg-white text-teal-900 px-6 py-3 rounded-xl font-bold hover:bg-teal-50 transition-all shadow-xl">
+          <button
+            type="button"
+            onClick={handleEditSystemRules}
+            className="bg-white text-teal-900 px-6 py-3 rounded-xl font-bold hover:bg-teal-50 transition-all shadow-xl"
+          >
             Edit System Rules
           </button>
         </div>
@@ -266,6 +308,36 @@ export function CourtManagementView() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Court Photo</label>
+                <div className="flex items-start gap-4">
+                  <div className="h-24 w-32 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shrink-0">
+                    <img
+                      src={formData.imageUrl || getCourtImage(formData.name || 'tennis')}
+                      alt="Court preview"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageSelected(e.target.files?.[0] || null)}
+                      className="block w-full text-sm text-slate-700 dark:text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-teal-600 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-teal-700"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, imageUrl: '' }))}
+                        className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                      >
+                        Remove photo
+                      </button>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">Stored with this court on save.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Court Name</label>

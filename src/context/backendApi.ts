@@ -2,6 +2,7 @@ import { Booking, Court, FacilityConfig, MembershipPlan, Notification, User } fr
 import { BookingAnalytics, CourtUtilization } from "@/types";
 
 type Role = User["role"];
+type Status = User["status"];
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -26,6 +27,7 @@ const mapUser = (u: any): User => ({
   email: String(u?.email || ""),
   name: String(u?.name || ""),
   role: (u?.role || "player") as Role,
+  status: (u?.status || "active") as Status,
   phone: String(u?.phone || ""),
   avatar: String(u?.avatar || ""),
   skillLevel: u?.skillLevel,
@@ -49,6 +51,7 @@ const mapCourt = (c: any): Court => ({
   hourlyRate: Number(c?.hourlyRate || 0),
   peakHourRate: c?.peakHourRate == null ? undefined : Number(c.peakHourRate),
   status: c?.status || "active",
+  imageUrl: c?.imageUrl ? String(c.imageUrl) : undefined,
   operatingHours: {
     start: String(c?.operatingHours?.start || "07:00"),
     end: String(c?.operatingHours?.end || "22:00"),
@@ -223,6 +226,7 @@ export const backendApi = {
       verificationDocumentName?: string;
       verificationId?: string;
       verificationNotes?: string;
+      adminCode?: string;
     } = {},
   ) {
     ensureBackendEnabled();
@@ -460,6 +464,37 @@ export const backendApi = {
         amount: payload.amount,
         notes: payload.notes,
         coachId: payload.coachId,
+      },
+    });
+    return mapBooking(data);
+  },
+
+  async createQuickBooking(payload: {
+    fullName: string;
+    contactNumber: string;
+    courtId: string;
+    date: string | Date;
+    startTime: string;
+    endTime: string;
+    duration: number;
+    amount: number;
+    type?: "open_play" | "private" | "training";
+  }) {
+    ensureBackendEnabled();
+    const dateString = payload.date instanceof Date ? payload.date.toISOString().slice(0, 10) : String(payload.date);
+    const data = await request<any>("/bookings/quick", {
+      method: "POST",
+      auth: false,
+      body: {
+        fullName: payload.fullName,
+        contactNumber: payload.contactNumber,
+        courtId: payload.courtId,
+        date: dateString,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+        duration: payload.duration,
+        amount: payload.amount,
+        type: payload.type || "private",
       },
     });
     return mapBooking(data);

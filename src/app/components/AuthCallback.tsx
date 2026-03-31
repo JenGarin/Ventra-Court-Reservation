@@ -12,6 +12,7 @@ export function AuthCallback() {
   const location = useLocation();
   const pendingOauthConfirmation = localStorage.getItem('ventra_oauth_confirmation_pending');
   const pendingEmailLinkConfirmation = localStorage.getItem('ventra_oauth_email_link_pending');
+  const oauthError = localStorage.getItem('ventra_oauth_error');
 
   const errorMessage = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -29,6 +30,12 @@ export function AuthCallback() {
 
   useEffect(() => {
     if (errorMessage) return;
+    if (oauthError) {
+      localStorage.removeItem('ventra_oauth_error');
+      toast.error(oauthError);
+      navigate('/login', { replace: true });
+      return;
+    }
     if (currentUser) {
       if (
         confirmationMode === 'email-link' &&
@@ -51,21 +58,16 @@ export function AuthCallback() {
     }
 
     const timeout = window.setTimeout(() => {
-      navigate('/sign-in', {
-        replace: true,
-        state: { authError: 'Sign-in could not be completed. Please try again.' },
-      });
+      navigate('/login', { replace: true });
     }, 2500);
 
     return () => window.clearTimeout(timeout);
-  }, [confirmationMode, currentUser, errorMessage, navigate, pendingEmailLinkConfirmation, pendingOauthConfirmation]);
+  }, [confirmationMode, currentUser, errorMessage, navigate, oauthError, pendingEmailLinkConfirmation, pendingOauthConfirmation]);
 
   useEffect(() => {
     if (!errorMessage) return;
-    navigate('/sign-in', {
-      replace: true,
-      state: { authError: decodeURIComponent(errorMessage.replace(/\+/g, ' ')) },
-    });
+    toast.error(decodeURIComponent(errorMessage.replace(/\+/g, ' ')));
+    navigate('/login', { replace: true });
   }, [errorMessage, navigate]);
 
   return (

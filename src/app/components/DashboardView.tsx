@@ -161,15 +161,15 @@ export function DashboardView() {
   };
 
   return (
-    <div className="min-h-screen bg-transparent p-6 space-y-8 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-transparent p-6 space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Great to have you, Admin</h1>
           <p className="text-slate-600 dark:text-slate-200">Lead today with confidence. Keep bookings smooth, courts ready, and players happy.</p>
         </div>
         <div className="relative">
-          <span className="absolute -inset-1 rounded-2xl bg-teal-300/30 dark:bg-teal-300/30 blur-md animate-pulse" />
-          <div className="relative inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-white/85 dark:border-teal-200/40 dark:bg-white/10 px-4 py-2 text-slate-900 dark:text-white backdrop-blur-sm animate-pulse">
+          <span className="absolute -inset-1 rounded-2xl bg-teal-300/30 dark:bg-teal-300/30 blur-md" />
+          <div className="relative inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-white/85 dark:border-teal-200/40 dark:bg-white/10 px-4 py-2 text-slate-900 dark:text-white backdrop-blur-sm">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 dark:bg-white/20">
               <ShieldUser className="h-5 w-5" />
             </div>

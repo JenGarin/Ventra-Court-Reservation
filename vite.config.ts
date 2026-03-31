@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: 5173,
-      strictPort: true,
+      strictPort: false,
       proxy: {
         // Local-dev convenience: keep `VITE_API_BASE_URL=/api/v1` and proxy to the Supabase edge function.
         // Set `VITE_API_PROXY_TARGET` to override (default: http://localhost:54321).
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: '0.0.0.0',
       port: 4173,
-      strictPort: true,
+      strictPort: false,
     },
   }
 })

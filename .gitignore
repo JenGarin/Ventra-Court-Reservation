@@ -13,6 +13,8 @@ build
 # Misc
 .DS_Store
 .env
+.npm-cache
+.sixth
 .env.local
 .env.development.local
 .env.test.local

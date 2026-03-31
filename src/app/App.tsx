@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
@@ -37,6 +37,30 @@ import { PendingBookings } from './components/PendingBookings';
 import { HireCoachView } from './components/HireCoachView';
 
 const ACCOUNT_CREATED_NOTICE_KEY = 'ventra_account_created_notice';
+type AppRole = 'admin' | 'staff' | 'coach' | 'player';
+
+function RequireRole({ allow, children }: { allow: AppRole[]; children: JSX.Element }) {
+  const { currentUser } = useApp();
+  const location = useLocation();
+  const allowed = Boolean(currentUser && allow.includes(currentUser.role as AppRole));
+  const toastKey = useMemo(() => `ventra_role_denied:${location.pathname}`, [location.pathname]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (allowed) return;
+    if (sessionStorage.getItem(toastKey) === '1') return;
+    sessionStorage.setItem(toastKey, '1');
+    toast.error('Access denied for your account role.');
+  }, [allowed, currentUser, toastKey]);
+
+  if (!currentUser) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  if (!allowed) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return children;
+}
 
 function DashboardLayout() {
   const { currentUser } = useApp();
@@ -115,6 +139,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/quick-booking" element={<BookingInterface initialMode="quick" quickOnly />} />
             <Route path="/login" element={<RoleSelection />} />
             <Route path="/sign-in" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
@@ -126,22 +151,106 @@ export default function App() {
             
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<DashboardEntry />} />
-              <Route path="/booking" element={<BookingInterface />} />
-              <Route path="/booking/payment" element={<BookingPayment />} />
-              <Route path="/my-bookings" element={<MyBookings />} />
-              <Route path="/history" element={<BookingHistoryView />} />
-              <Route path="/court-mgmt" element={<CourtManagementView />} />
-              <Route path="/analytics" element={<Reports />} />
-              <Route path="/requests" element={<PendingBookings />} />
+              <Route
+                path="/booking"
+                element={
+                  <RequireRole allow={['player', 'coach']}>
+                    <BookingInterface />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/booking/payment"
+                element={
+                  <RequireRole allow={['player', 'coach']}>
+                    <BookingPayment />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/my-bookings"
+                element={
+                  <RequireRole allow={['player', 'coach']}>
+                    <MyBookings />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/history"
+                element={
+                  <RequireRole allow={['player', 'coach']}>
+                    <BookingHistoryView />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/court-mgmt"
+                element={
+                  <RequireRole allow={['admin', 'staff']}>
+                    <CourtManagementView />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <RequireRole allow={['admin']}>
+                    <Reports />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/requests"
+                element={
+                  <RequireRole allow={['admin', 'staff']}>
+                    <PendingBookings />
+                  </RequireRole>
+                }
+              />
               <Route path="/profile" element={<ProfileEntry />} />
               <Route path="/profile-settings" element={<ProfileSettings />} />
               <Route path="/notifications" element={<NotificationsView />} />
               <Route path="/pricing" element={<PricingEntry />} />
-              <Route path="/users" element={<UserManagementView />} />
-              <Route path="/settings" element={<SettingsView />} />
-              <Route path="/billing" element={<PaymentHistory />} />
-              <Route path="/coach-sessions" element={<CoachSessions />} />
-              <Route path="/hire-coach" element={<HireCoachView />} />
+              <Route
+                path="/users"
+                element={
+                  <RequireRole allow={['admin', 'staff']}>
+                    <UserManagementView />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireRole allow={['admin']}>
+                    <SettingsView />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/billing"
+                element={
+                  <RequireRole allow={['player', 'coach']}>
+                    <PaymentHistory />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/coach-sessions"
+                element={
+                  <RequireRole allow={['coach']}>
+                    <CoachSessions />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="/hire-coach"
+                element={
+                  <RequireRole allow={['player']}>
+                    <HireCoachView />
+                  </RequireRole>
+                }
+              />
             </Route>
 
             <Route path="/check-in" element={<CheckIn />} />

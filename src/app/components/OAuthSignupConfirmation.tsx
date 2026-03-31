@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
@@ -8,6 +8,8 @@ import { getAuthCallbackUrl } from '@/utils/authRedirect';
 
 const PENDING_KEY = 'ventra_oauth_confirmation_pending';
 const EMAIL_LINK_PENDING_KEY = 'ventra_oauth_email_link_pending';
+const EMAIL_LINK_LAST_SENT_AT_KEY = 'ventra_oauth_email_link_last_sent_at';
+const EMAIL_LINK_COOLDOWN_MS = 60_000;
 
 export function OAuthSignupConfirmation() {
   const { currentUser } = useApp();
@@ -15,6 +17,7 @@ export function OAuthSignupConfirmation() {
   const [isSending, setIsSending] = useState(false);
   const [linkSent, setLinkSent] = useState(Boolean(localStorage.getItem(EMAIL_LINK_PENDING_KEY)));
   const pendingEmail = localStorage.getItem(PENDING_KEY);
+  const autoSendAttemptedRef = useRef(false);
 
   const targetEmail = useMemo(
     () => (currentUser?.email || pendingEmail || '').trim().toLowerCase(),
@@ -31,9 +34,27 @@ export function OAuthSignupConfirmation() {
     }
   }, [currentUser?.email, linkSent, navigate, pendingEmail, targetEmail]);
 
+  useEffect(() => {
+    if (!targetEmail) return;
+    if (linkSent) return;
+    if (isSending) return;
+    if (autoSendAttemptedRef.current) return;
+    const lastSentAt = Number(localStorage.getItem(EMAIL_LINK_LAST_SENT_AT_KEY) || 0);
+    if (lastSentAt && Date.now() - lastSentAt < EMAIL_LINK_COOLDOWN_MS) return;
+    autoSendAttemptedRef.current = true;
+    void handleSendConfirmationLink();
+  }, [isSending, linkSent, targetEmail]);
+
   const handleSendConfirmationLink = async () => {
     if (!targetEmail) {
       toast.error('No email address is available for confirmation.');
+      return;
+    }
+
+    const lastSentAt = Number(localStorage.getItem(EMAIL_LINK_LAST_SENT_AT_KEY) || 0);
+    if (lastSentAt && Date.now() - lastSentAt < EMAIL_LINK_COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil((EMAIL_LINK_COOLDOWN_MS - (Date.now() - lastSentAt)) / 1000);
+      toast.error(`Email link already sent recently. Please wait ${remainingSeconds}s and try again.`);
       return;
     }
 
@@ -48,12 +69,20 @@ export function OAuthSignupConfirmation() {
       });
 
       if (error) {
+        console.error('Failed to send magic link email:', {
+          message: error.message,
+          status: (error as any)?.status,
+          name: (error as any)?.name,
+          targetEmail,
+          redirectTo: `${getAuthCallbackUrl()}?confirmation=email-link`,
+        });
         toast.error(error.message);
         setIsSending(false);
         return;
       }
 
       localStorage.setItem(EMAIL_LINK_PENDING_KEY, targetEmail);
+      localStorage.setItem(EMAIL_LINK_LAST_SENT_AT_KEY, String(Date.now()));
       setLinkSent(true);
       toast.success('Confirmation link sent. Please open the email and click the link.');
 
@@ -100,15 +129,17 @@ export function OAuthSignupConfirmation() {
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={handleSendConfirmationLink}
-            disabled={isSending}
-            className="mt-6 w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
-            {isSending ? 'Sending link...' : 'Send Confirmation Link'}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={handleSendConfirmationLink}
+              disabled={isSending}
+              className="mt-6 w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+              {isSending ? 'Sending link...' : 'Send Confirmation Link'}
+            </button>
+          </>
         )}
 
         {linkSent && (
