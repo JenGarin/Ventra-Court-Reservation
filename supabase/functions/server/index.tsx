@@ -1701,14 +1701,98 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
   }
 
   if (authMode() === "supabase") {
+    // Prefer service-role createUser for signups in production so the app does not depend on SMTP/email confirmation.
+    // Falls back to anon signUp when service env is not provided.
+    if (hasSupabaseServiceEnv()) {
+      const admin = await supabaseServiceClient();
+      const { data, error } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          name,
+          phone,
+          role,
+          status,
+        },
+      });
+      if (error || !data?.user?.id) {
+        await writeAuditLog({
+          action: "auth_signup_failed",
+          entityType: "auth",
+          entityId: email,
+          actorId: "anonymous",
+          actorRole: "player",
+          metadata: {
+            reason: "provider_error",
+            provider: "supabase_admin_create_user",
+            email,
+            role,
+            message: error?.message || "signup_failed",
+            requestId: requestIdFromContext(c),
+          },
+        });
+        const message = error?.message || "Signup failed.";
+        const isConflict =
+          message.toLowerCase().includes("already registered") ||
+          message.toLowerCase().includes("already exists") ||
+          message.toLowerCase().includes("exists");
+        return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+      }
+
+      const created: ApiUser = {
+        id: String(data.user.id),
+        email,
+        name,
+        role,
+        status,
+        phone: phone || undefined,
+        coachProfile: role === "coach" ? coachDraft!.coachProfile : undefined,
+        coachExpertise: role === "coach" ? (coachDraft!.coachExpertise || []) : undefined,
+        coachVerificationStatus: role === "coach" ? "pending" : undefined,
+        coachVerificationMethod: role === "coach"
+          ? (coachDraft!.verificationMethod as ApiUser["coachVerificationMethod"])
+          : undefined,
+        coachVerificationDocumentName: role === "coach" ? coachDraft!.verificationDocumentName : undefined,
+        coachVerificationId: role === "coach" ? coachDraft!.verificationId : undefined,
+        coachVerificationNotes: role === "coach" ? coachDraft!.verificationNotes : undefined,
+        coachVerificationSubmittedAt: role === "coach" ? nowIso() : undefined,
+        createdAt: nowIso(),
+      };
+      await kv.set(`user:${created.id}`, created);
+      await writeAuditLog({
+        action: "auth_signup_succeeded",
+        entityType: "auth",
+        entityId: created.id,
+        actorId: created.id,
+        actorRole: created.role,
+        metadata: {
+          provider: "supabase_admin_create_user",
+          email,
+          roleAssigned: role,
+          requestedRole,
+          requestId: requestIdFromContext(c),
+        },
+      });
+      if (role === "coach") {
+        return jsonOk(c, {
+          pending: true,
+          role: "coach",
+          message: "Your coach account request is under review by the administrator.",
+        });
+      }
+      return jsonOk(c, created);
+    }
+
     if (!hasSupabaseAuthEnv()) {
       return jsonErr(
         c,
         500,
         "MISCONFIGURED",
-        "Supabase auth mode requires SUPABASE_URL and SUPABASE_ANON_KEY to be set.",
+        "Supabase auth mode requires SUPABASE_URL and SUPABASE_ANON_KEY to be set (or SUPABASE_SERVICE_ROLE_KEY for service-role signups).",
       );
     }
+
     const supabase = await supabaseAnonClient();
     const { data, error } = await supabase.auth.signUp({
       email,
