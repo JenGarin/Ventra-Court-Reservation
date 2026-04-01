@@ -22,7 +22,7 @@ const loadCreateClient = async () => {
 
 const client = async () => {
   const url = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY");
   if (!url || !serviceRoleKey) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables.");
   }
@@ -47,7 +47,7 @@ const optionalRelationalPrefixes: EntityPrefix[] = ["coachapp", "audit", "bookin
 
 const hasSupabaseEnv = () => {
   try {
-    return !!Deno.env.get("SUPABASE_URL") && !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    return !!Deno.env.get("SUPABASE_URL") && !!(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY"));
   } catch {
     return false;
   }
@@ -68,10 +68,12 @@ const missingSupabaseEnv = (): string[] => {
   const missing: string[] = [];
   try {
     if (!Deno.env.get("SUPABASE_URL")) missing.push("SUPABASE_URL");
-    if (!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (!(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY"))) {
+      missing.push("SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY)");
+    }
   } catch {
     // In some runtimes env access can be restricted; treat as missing.
-    missing.push("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY");
+    missing.push("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY)");
   }
   return missing;
 };

@@ -27,7 +27,8 @@ const authMode = (): AuthMode => {
 
 const supabaseUrl = () => String(Deno.env.get("SUPABASE_URL") || "").trim();
 const supabaseAnonKey = () => String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
-const supabaseServiceRoleKey = () => String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
+const supabaseServiceRoleKey = () =>
+  String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "").trim();
 const adminSignupCode = () => String(Deno.env.get("ADMIN_SIGNUP_CODE") || "").trim();
 
 const hasSupabaseAuthEnv = () => {
@@ -40,7 +41,7 @@ const hasSupabaseAuthEnv = () => {
 
 const hasSupabaseServiceEnv = () => {
   try {
-    return !!Deno.env.get("SUPABASE_URL") && !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    return !!Deno.env.get("SUPABASE_URL") && !!(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY"));
   } catch {
     return false;
   }
