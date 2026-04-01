@@ -41,6 +41,14 @@ export function UserManagementView() {
   const [verificationReviewText, setVerificationReviewText] = useState('');
   const [isSubmittingVerificationReview, setIsSubmittingVerificationReview] = useState(false);
 
+  const errorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error) {
+      const msg = String(error.message || '').trim();
+      if (msg) return msg;
+    }
+    return fallback;
+  };
+
   const coachUnderReview = useMemo(() => {
     const coachId = verificationReviewModal.coachId;
     if (!coachId) return null;
@@ -102,8 +110,8 @@ export function UserManagementView() {
     try {
       const rows = await getCoachVerificationQueue({ status: verificationFilter });
       setVerificationQueue(rows);
-    } catch {
-      toast.error('Failed to load coach verification queue.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Failed to load coach verification queue.'));
     } finally {
       setIsVerificationLoading(false);
       setVerificationQueueLoaded(true);
@@ -154,8 +162,13 @@ export function UserManagementView() {
       setVerificationReviewModal((prev) => ({ ...prev, open: false }));
       setVerificationReviewText('');
       await loadVerificationQueue();
-    } catch {
-      toast.error(mode === 'approve' ? 'Failed to approve coach verification.' : 'Failed to reject coach verification.');
+    } catch (error) {
+      toast.error(
+        errorMessage(
+          error,
+          mode === 'approve' ? 'Failed to approve coach verification.' : 'Failed to reject coach verification.',
+        ),
+      );
     } finally {
       setIsSubmittingVerificationReview(false);
     }
