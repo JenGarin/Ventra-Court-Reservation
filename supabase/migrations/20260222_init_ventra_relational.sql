@@ -13,6 +13,7 @@ create table if not exists public.app_users (
   email text not null unique,
   name text not null,
   role text not null check (role in ('admin', 'staff', 'coach', 'player')),
+  status text not null default 'active' check (status in ('active', 'pending')),
   phone text,
   avatar text,
   skill_level text,
