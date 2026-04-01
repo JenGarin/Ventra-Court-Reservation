@@ -40,7 +40,7 @@ const ACCOUNT_CREATED_NOTICE_KEY = 'ventra_account_created_notice';
 type AppRole = 'admin' | 'staff' | 'coach' | 'player';
 
 function RequireRole({ allow, children }: { allow: AppRole[]; children: JSX.Element }) {
-  const { currentUser } = useApp();
+  const { currentUser, bootstrapped } = useApp();
   const location = useLocation();
   const allowed = Boolean(currentUser && allow.includes(currentUser.role as AppRole));
   const toastKey = useMemo(() => `ventra_role_denied:${location.pathname}`, [location.pathname]);
@@ -53,6 +53,14 @@ function RequireRole({ allow, children }: { allow: AppRole[]; children: JSX.Elem
     toast.error('Access denied for your account role.');
   }, [allowed, currentUser, toastKey]);
 
+  if (!currentUser && !bootstrapped) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-8 text-slate-600 dark:text-slate-300">
+        Loading...
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
@@ -63,7 +71,7 @@ function RequireRole({ allow, children }: { allow: AppRole[]; children: JSX.Elem
 }
 
 function DashboardLayout() {
-  const { currentUser } = useApp();
+  const { currentUser, bootstrapped } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const pendingOauthConfirmation = localStorage.getItem('ventra_oauth_confirmation_pending');
@@ -75,6 +83,14 @@ function DashboardLayout() {
     toast.success(notice);
     localStorage.removeItem(ACCOUNT_CREATED_NOTICE_KEY);
   }, [currentUser]);
+
+  if (!currentUser && !bootstrapped) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-8 text-slate-600 dark:text-slate-300">
+        Loading...
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <Navigate to="/login" replace />;

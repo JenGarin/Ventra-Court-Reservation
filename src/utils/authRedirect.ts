@@ -7,6 +7,9 @@ const normalizeHostnameForAuth = (hostname: string) => {
 };
 
 export const getAuthRedirectOrigin = () => {
+  const configured = String(import.meta.env.VITE_SITE_URL || "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+
   const url = new URL(window.location.href);
   const hostname = normalizeHostnameForAuth(url.hostname);
   const port = url.port ? `:${url.port}` : "";
@@ -14,4 +17,3 @@ export const getAuthRedirectOrigin = () => {
 };
 
 export const getAuthCallbackUrl = () => `${getAuthRedirectOrigin()}/auth/callback`;
-

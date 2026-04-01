@@ -19,8 +19,30 @@ type ApiSession = {
 
 const SESSION_KEY = "ventra_api_session";
 const rawUseBackend = String(import.meta.env.VITE_USE_BACKEND_API || "").trim().toLowerCase();
-const USE_BACKEND_API = rawUseBackend === "true" || rawUseBackend === "1" || rawUseBackend === "yes";
-const API_BASE = String(import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/+$/, "");
+const USE_BACKEND_API =
+  rawUseBackend === "true" ||
+  rawUseBackend === "1" ||
+  rawUseBackend === "yes" ||
+  (rawUseBackend === "" && Boolean(import.meta.env.PROD));
+
+const resolveApiBase = () => {
+  const configured = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  if (configured) return configured.replace(/\/+$/, "");
+
+  // Dev default: rely on Vite proxy (`/api/v1` -> local Supabase edge function).
+  if (!import.meta.env.PROD) return "/api/v1";
+
+  // Prod default: talk directly to the deployed Supabase edge function to avoid
+  // needing host-level proxy/redirect rules.
+  const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "");
+  if (supabaseUrl) {
+    return `${supabaseUrl}/functions/v1/server/api/v1`;
+  }
+
+  return "/api/v1";
+};
+
+const API_BASE = resolveApiBase();
 
 const mapUser = (u: any): User => ({
   id: String(u?.id || ""),

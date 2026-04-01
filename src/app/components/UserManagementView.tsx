@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { Search, Filter, Trash2, Mail, CheckCircle, BadgeCheck, Clock3, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function UserManagementView() {
   const {
+    bootstrapped,
     users,
     adminUpdateUser,
     adminDeleteUser,
@@ -14,23 +15,51 @@ export function UserManagementView() {
     rejectCoachVerification,
   } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [verificationFilter, setVerificationFilter] = useState<'pending' | 'verified' | 'rejected' | 'unverified'>('pending');
+  const [roleFilter, setRoleFilter] = useState(() => {
+    const stored = sessionStorage.getItem('ventra_admin_role_filter') || '';
+    return stored || 'all';
+  });
+  const [verificationFilter, setVerificationFilter] = useState<'pending' | 'verified' | 'rejected' | 'unverified'>(() => {
+    const stored = sessionStorage.getItem('ventra_admin_verification_filter') || '';
+    if (stored === 'pending' || stored === 'verified' || stored === 'rejected' || stored === 'unverified') return stored;
+    return 'pending';
+  });
   const [verificationQueue, setVerificationQueue] = useState<typeof users>([]);
   const [isVerificationLoading, setIsVerificationLoading] = useState(false);
+  const [verificationQueueLoaded, setVerificationQueueLoaded] = useState(false);
   const [verificationReviewModal, setVerificationReviewModal] = useState<{
     open: boolean;
-    action: 'approve' | 'reject';
+    mode: 'view' | 'approve' | 'reject';
     coachId: string;
     coachName: string;
   }>({
     open: false,
-    action: 'approve',
+    mode: 'view',
     coachId: '',
     coachName: '',
   });
   const [verificationReviewText, setVerificationReviewText] = useState('');
   const [isSubmittingVerificationReview, setIsSubmittingVerificationReview] = useState(false);
+
+  const coachUnderReview = useMemo(() => {
+    const coachId = verificationReviewModal.coachId;
+    if (!coachId) return null;
+    return (
+      verificationQueue.find((u) => u.id === coachId) ||
+      users.find((u) => u.id === coachId) ||
+      null
+    );
+  }, [users, verificationQueue, verificationReviewModal.coachId]);
+
+  if (!bootstrapped) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-slate-950 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 text-slate-600 dark:text-slate-300">
+          Loading users...
+        </div>
+      </div>
+    );
+  }
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
@@ -66,6 +95,7 @@ export function UserManagementView() {
   const loadVerificationQueue = async () => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'staff') {
       setVerificationQueue([]);
+      setVerificationQueueLoaded(true);
       return;
     }
     setIsVerificationLoading(true);
@@ -76,6 +106,7 @@ export function UserManagementView() {
       toast.error('Failed to load coach verification queue.');
     } finally {
       setIsVerificationLoading(false);
+      setVerificationQueueLoaded(true);
     }
   };
 
@@ -83,15 +114,19 @@ export function UserManagementView() {
     loadVerificationQueue();
   }, [verificationFilter, currentUser?.role]);
 
-  const openVerificationReviewModal = (
-    coachId: string,
-    coachName: string,
-    action: 'approve' | 'reject'
-  ) => {
+  useEffect(() => {
+    sessionStorage.setItem('ventra_admin_verification_filter', verificationFilter);
+  }, [verificationFilter]);
+
+  useEffect(() => {
+    sessionStorage.setItem('ventra_admin_role_filter', roleFilter);
+  }, [roleFilter]);
+
+  const openCoachReviewModal = (coachId: string, coachName: string) => {
     setVerificationReviewText('');
     setVerificationReviewModal({
       open: true,
-      action,
+      mode: 'view',
       coachId,
       coachName,
     });
@@ -104,11 +139,12 @@ export function UserManagementView() {
   };
 
   const handleSubmitVerificationReview = async () => {
-    const { coachId, action } = verificationReviewModal;
+    const { coachId, mode } = verificationReviewModal;
     if (!coachId) return;
+    if (mode !== 'approve' && mode !== 'reject') return;
     setIsSubmittingVerificationReview(true);
     try {
-      if (action === 'approve') {
+      if (mode === 'approve') {
         await approveCoachVerification(coachId, verificationReviewText.trim() || undefined);
         toast.success('Coach verification approved.');
       } else {
@@ -119,14 +155,14 @@ export function UserManagementView() {
       setVerificationReviewText('');
       await loadVerificationQueue();
     } catch {
-      toast.error(action === 'approve' ? 'Failed to approve coach verification.' : 'Failed to reject coach verification.');
+      toast.error(mode === 'approve' ? 'Failed to approve coach verification.' : 'Failed to reject coach verification.');
     } finally {
       setIsSubmittingVerificationReview(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-950 p-6 space-y-8 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950 p-6 space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">User Management</h1>
@@ -167,25 +203,45 @@ export function UserManagementView() {
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Coach Verification Queue</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">Review coach identity and credentials submissions.</p>
             </div>
-            <select
-              value={verificationFilter}
-              onChange={(e) => setVerificationFilter(e.target.value as 'pending' | 'verified' | 'rejected' | 'unverified')}
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-            >
-              <option value="pending">Pending</option>
-              <option value="verified">Verified</option>
-              <option value="rejected">Rejected</option>
-              <option value="unverified">Unverified</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={verificationFilter}
+                onChange={(e) =>
+                  setVerificationFilter(e.target.value as 'pending' | 'verified' | 'rejected' | 'unverified')
+                }
+                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+              >
+                <option value="pending">Pending</option>
+                <option value="verified">Verified</option>
+                <option value="rejected">Rejected</option>
+                <option value="unverified">Unverified</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => void loadVerificationQueue()}
+                className="px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-700 dark:hover:bg-teal-600 text-sm font-semibold"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {isVerificationLoading && (
+            {(!verificationQueueLoaded || isVerificationLoading) && (
               <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Loading verification queue...</p>
             )}
-            {!isVerificationLoading && verificationQueue.length === 0 && (
-              <p className="p-4 text-sm text-slate-500 dark:text-slate-400">No coaches found for this filter.</p>
+            {verificationQueueLoaded && !isVerificationLoading && verificationQueue.length === 0 && (
+              <div className="p-4 text-sm text-slate-500 dark:text-slate-400 space-y-1">
+                <p>No coaches found for this filter.</p>
+                {verificationFilter === 'pending' && (
+                  <p className="text-xs">
+                    If the coach signed up on a different device/browser, they won’t appear here in standalone mode
+                    (localStorage is not shared). Enable backend API mode for shared approvals.
+                  </p>
+                )}
+              </div>
             )}
-            {!isVerificationLoading &&
+            {verificationQueueLoaded &&
+              !isVerificationLoading &&
               verificationQueue.map((coach) => (
                 <div key={coach.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
@@ -211,22 +267,12 @@ export function UserManagementView() {
                       {coach.coachVerificationStatus === 'verified' ? <BadgeCheck size={10} /> : coach.coachVerificationStatus === 'pending' ? <Clock3 size={10} /> : <XCircle size={10} />}
                       {coach.coachVerificationStatus || 'unverified'}
                     </span>
-                    {coach.coachVerificationStatus === 'pending' && (
-                      <>
-                        <button
-                          onClick={() => openVerificationReviewModal(coach.id, coach.name || coach.email, 'approve')}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => openVerificationReviewModal(coach.id, coach.name || coach.email, 'reject')}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition-colors"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
+                    <button
+                      onClick={() => openCoachReviewModal(coach.id, coach.name || coach.email)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-700 dark:hover:bg-teal-600 transition-colors"
+                    >
+                      {coach.coachVerificationStatus === 'pending' ? 'Review' : 'View'}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -309,51 +355,157 @@ export function UserManagementView() {
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
             <div className="p-5 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                {verificationReviewModal.action === 'approve' ? 'Approve Coach Verification' : 'Reject Coach Verification'}
+                {verificationReviewModal.mode === 'view'
+                  ? 'Review Coach Application'
+                  : verificationReviewModal.mode === 'approve'
+                    ? 'Approve Coach Verification'
+                    : 'Reject Coach Verification'}
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                 {verificationReviewModal.coachName}
               </p>
             </div>
-            <div className="p-5 space-y-3">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                {verificationReviewModal.action === 'approve' ? 'Approval note (optional)' : 'Rejection reason (optional)'}
-              </label>
-              <textarea
-                value={verificationReviewText}
-                onChange={(e) => setVerificationReviewText(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none resize-none"
-                placeholder={
-                  verificationReviewModal.action === 'approve'
-                    ? 'Add optional internal review note.'
-                    : 'Explain why this verification is being rejected.'
-                }
-              />
+            <div className="p-5 space-y-4">
+              {coachUnderReview && (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-4 space-y-3">
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">Application Details</p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Email</p>
+                      <p className="text-slate-900 dark:text-slate-100 break-all">{coachUnderReview.email}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Phone</p>
+                      <p className="text-slate-900 dark:text-slate-100">{coachUnderReview.phone || 'Not provided'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Verification Status</p>
+                      <p className="text-slate-900 dark:text-slate-100">{coachUnderReview.coachVerificationStatus || 'unverified'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Submitted At</p>
+                      <p className="text-slate-900 dark:text-slate-100">
+                        {coachUnderReview.coachVerificationSubmittedAt
+                          ? new Date(coachUnderReview.coachVerificationSubmittedAt).toLocaleString()
+                          : 'Not available'}
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Verification Method</p>
+                      <p className="text-slate-900 dark:text-slate-100">{coachUnderReview.coachVerificationMethod || 'Not provided'}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Document</p>
+                      <p className="text-slate-900 dark:text-slate-100">
+                        {coachUnderReview.coachVerificationDocumentName || 'Not provided'}
+                        {coachUnderReview.coachVerificationId ? ` (${coachUnderReview.coachVerificationId})` : ''}
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Coach Profile</p>
+                      <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
+                        {coachUnderReview.coachProfile || 'Not provided'}
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Expertise</p>
+                      <p className="text-slate-900 dark:text-slate-100">
+                        {coachUnderReview.coachExpertise?.length ? coachUnderReview.coachExpertise.join(', ') : 'Not provided'}
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Applicant Notes</p>
+                      <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
+                        {coachUnderReview.coachVerificationNotes || 'None'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {verificationReviewModal.mode !== 'view' && (
+                <>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    {verificationReviewModal.mode === 'approve' ? 'Approval note (optional)' : 'Rejection reason (optional)'}
+                  </label>
+                  <textarea
+                    value={verificationReviewText}
+                    onChange={(e) => setVerificationReviewText(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none resize-none"
+                    placeholder={
+                      verificationReviewModal.mode === 'approve'
+                        ? 'Add optional internal review note.'
+                        : 'Explain why this verification is being rejected.'
+                    }
+                  />
+                </>
+              )}
             </div>
             <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
-              <button
-                onClick={closeVerificationReviewModal}
-                disabled={isSubmittingVerificationReview}
-                className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void handleSubmitVerificationReview()}
-                disabled={isSubmittingVerificationReview}
-                className={`px-4 py-2 rounded-lg text-white disabled:opacity-60 ${
-                  verificationReviewModal.action === 'approve'
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                    : 'bg-rose-600 hover:bg-rose-700'
-                }`}
-              >
-                {isSubmittingVerificationReview
-                  ? 'Submitting...'
-                  : verificationReviewModal.action === 'approve'
-                    ? 'Approve'
-                    : 'Reject'}
-              </button>
+              {verificationReviewModal.mode === 'view' ? (
+                <>
+                  <button
+                    onClick={closeVerificationReviewModal}
+                    disabled={isSubmittingVerificationReview}
+                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    Close
+                  </button>
+                  {coachUnderReview?.coachVerificationStatus === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setVerificationReviewText('');
+                          setVerificationReviewModal((prev) => ({ ...prev, mode: 'reject' }));
+                        }}
+                        className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVerificationReviewText('');
+                          setVerificationReviewModal((prev) => ({ ...prev, mode: 'approve' }));
+                        }}
+                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        Approve
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      if (isSubmittingVerificationReview) return;
+                      setVerificationReviewModal((prev) => ({ ...prev, mode: 'view' }));
+                      setVerificationReviewText('');
+                    }}
+                    disabled={isSubmittingVerificationReview}
+                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={() => void handleSubmitVerificationReview()}
+                    disabled={isSubmittingVerificationReview}
+                    className={`px-4 py-2 rounded-lg text-white disabled:opacity-60 ${
+                      verificationReviewModal.mode === 'approve'
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-rose-600 hover:bg-rose-700'
+                    }`}
+                  >
+                    {isSubmittingVerificationReview
+                      ? 'Submitting...'
+                      : verificationReviewModal.mode === 'approve'
+                        ? 'Approve'
+                        : 'Reject'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

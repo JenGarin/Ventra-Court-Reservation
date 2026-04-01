@@ -57,7 +57,10 @@ type LocalCoachRegistration = {
   updatedAt: string;
 };
 
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
 interface AppContextType {
+  bootstrapped: boolean;
   currentUser: User | null;
   users: User[];
   courts: Court[];
@@ -207,6 +210,7 @@ const defaultConfig: FacilityConfig = {
 export function AppProvider({ children }: { children: ReactNode }) {
   const usingBackendApi = backendApi.isEnabled;
   const usingSupabaseAuth = !usingBackendApi && USE_SUPABASE_AUTH;
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const savedUser = localStorage.getItem('currentUser');
@@ -625,7 +629,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Subscriptions & Notifications loaded on demand or below if needed
     };
 
-    initData();
+    void initData().finally(() => {
+      setBootstrapped(true);
+    });
   }, [hydrateBackendData, usingBackendApi]);
 
   useEffect(() => {
@@ -723,6 +729,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const article = role === 'admin' ? 'an' : 'a';
       return `This account is not ${article} ${role} account.`;
     };
+    const normalizedEmail = normalizeEmail(email);
+
+    const readLocalAuthPassword = (targetEmail: string) => {
+      try {
+        const storedAuth = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH) || '{}');
+        return Object.entries(storedAuth).find(([storedEmail]) => String(storedEmail).toLowerCase() === targetEmail)?.[1];
+      } catch {
+        return undefined;
+      }
+    };
+
+    const readLocalCoachRegistrations = (): LocalCoachRegistration[] => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.COACH_REGISTRATIONS);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? (parsed as LocalCoachRegistration[]) : [];
+      } catch {
+        return [];
+      }
+    };
+
+    // In Supabase-auth mode we still want coach approvals to work locally (no service role available to update metadata).
+    // So: allow coach login via local credentials when they exist.
+    if (!usingBackendApi && expectedRole === 'coach') {
+      const storedLocalPassword = readLocalAuthPassword(normalizedEmail);
+      if (storedLocalPassword && storedLocalPassword === password) {
+        const localUser = users.find((u) => u.email.toLowerCase() === normalizedEmail) || null;
+        if (localUser?.role === 'coach' && localUser.status === 'pending') {
+          return { success: false, message: 'Your coach account is awaiting approval.' };
+        }
+        if (localUser && localUser.role === 'coach' && localUser.status === 'active') {
+          setCurrentUser(localUser);
+          localStorage.setItem('currentUser', JSON.stringify(localUser));
+          return { success: true };
+        }
+
+        const pendingRegistration = readLocalCoachRegistrations().find(
+          (r) => normalizeEmail(String(r.email || '')) === normalizedEmail && r.status === 'pending',
+        );
+        if (pendingRegistration) {
+          return { success: false, message: 'Your coach account is awaiting approval.' };
+        }
+      }
+    }
+
     if (usingBackendApi) {
       try {
         const user = await backendApi.login(email, password, expectedRole);
@@ -794,7 +845,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-    const normalizedEmail = email.trim().toLowerCase();
 
     // Check seed credentials
     const seedCreds: Record<string, string> = {
@@ -806,10 +856,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     // Check stored credentials
-    const storedAuth = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH) || '{}');
-    const storedAuthPassword = Object.entries(storedAuth).find(
-      ([storedEmail]) => storedEmail.toLowerCase() === normalizedEmail
-    )?.[1];
+    const storedAuthPassword = readLocalAuthPassword(normalizedEmail);
     
     if (seedCreds[normalizedEmail] === password || storedAuthPassword === password) {
       const user = users.find(u => u.email.toLowerCase() === normalizedEmail);
@@ -880,6 +927,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     payload: SignupPayload = {}
   ): Promise<{ success: boolean; message?: string }> => {
     const requestedCoach = role.toLowerCase() === 'coach';
+    const normalizedEmail = normalizeEmail(email);
+
+    const readLocalCoachRegistrations = (): LocalCoachRegistration[] => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.COACH_REGISTRATIONS);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? (parsed as LocalCoachRegistration[]) : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const writeLocalCoachRegistrations = (items: LocalCoachRegistration[]) => {
+      persist(STORAGE_KEYS.COACH_REGISTRATIONS, items);
+    };
+
+    const addPendingCoachRegistration = (): { success: boolean; message?: string } => {
+      if (!password || password.trim().length < PASSWORD_MIN_LENGTH) {
+        return { success: false, message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` };
+      }
+      const method = payload.verificationMethod;
+      const documentName = payload.verificationDocumentName?.trim() || '';
+      if (!payload.name?.trim()) {
+        return { success: false, message: 'Full name is required for coach registration.' };
+      }
+      if (!method) {
+        return { success: false, message: 'Verification method is required for coach registration.' };
+      }
+      if (!documentName) {
+        return { success: false, message: 'Verification document name is required for coach registration.' };
+      }
+
+      if (users.some((u) => u.email.toLowerCase() === normalizedEmail)) {
+        return { success: false, message: 'Email already exists' };
+      }
+      const existingRegs = readLocalCoachRegistrations();
+      if (existingRegs.some((r) => normalizeEmail(String(r.email || '')) === normalizedEmail)) {
+        return { success: false, message: 'Email already exists' };
+      }
+
+      const nowIso = new Date().toISOString();
+      const registration: LocalCoachRegistration = {
+        id: Math.random().toString(36).slice(2, 10),
+        email: normalizedEmail,
+        password,
+        name: payload.name.trim(),
+        phone: payload.phone?.trim() || '',
+        coachProfile: payload.coachProfile?.trim() || '',
+        coachExpertise: (payload.coachExpertise || []).filter(Boolean),
+        verificationMethod: method,
+        verificationDocumentName: documentName,
+        verificationId: payload.verificationId?.trim() || undefined,
+        verificationNotes: payload.verificationNotes?.trim() || undefined,
+        status: 'pending',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      writeLocalCoachRegistrations([registration, ...existingRegs]);
+
+      // Store credentials now so after approval the coach can sign in with the same email/password.
+      try {
+        const auth = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH) || '{}');
+        auth[normalizedEmail] = password;
+        persist(STORAGE_KEYS.AUTH, auth);
+      } catch {
+        // ignore
+      }
+
+      return { success: true, message: 'Your coach account request is under review by the administrator.' };
+    };
+
     if (usingBackendApi) {
       try {
         const result = await backendApi.signup(email, password, role as User['role'], {
@@ -905,6 +1024,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (usingSupabaseAuth) {
+      // Coach accounts require admin approval; keep the workflow local so approval can enable sign-in immediately.
+      if (requestedCoach) {
+        return addPendingCoachRegistration();
+      }
       try {
         if (!password || password.trim().length < PASSWORD_MIN_LENGTH) {
           return { success: false, message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` };
@@ -918,20 +1041,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
         if (requestedCoach) {
-          const method = payload.verificationMethod;
-          const documentName = payload.verificationDocumentName?.trim() || '';
-          if (!payload.name?.trim()) {
-            return { success: false, message: 'Full name is required for coach registration.' };
-          }
-          if (!method) {
-            return { success: false, message: 'Verification method is required for coach registration.' };
-          }
-          if (!documentName) {
-            return { success: false, message: 'Verification document name is required for coach registration.' };
-          }
+          // handled above
+          return addPendingCoachRegistration();
         }
         const { data, error } = await supabase.auth.signUp({
-          email: email.trim().toLowerCase(),
+          email: normalizedEmail,
           password,
           options: {
             emailRedirectTo: getAuthRedirectUrl(),
@@ -969,11 +1083,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const updatedUsers = [...users, newUser];
           setUsers(updatedUsers);
           persist(STORAGE_KEYS.USERS, updatedUsers);
-          await supabase.auth.signOut();
+          // Coach sign-up should not fail just because logout can't reach the network.
+          // Use a local-only sign out to clear any session artifacts when present.
+          try {
+            await supabase.auth.signOut({ scope: 'local' as any });
+          } catch {
+            // ignore
+          }
           return { success: true, message: 'Your coach account request is under review by the administrator.' };
         }
         if (data.session && data.user && !isSupabaseEmailConfirmed(data.user)) {
-          await supabase.auth.signOut();
+          try {
+            await supabase.auth.signOut({ scope: 'local' as any });
+          } catch {
+            // ignore
+          }
         }
         if (data.session && data.user?.email && isSupabaseEmailConfirmed(data.user)) {
           syncSupabaseUser(data.user, role);
@@ -989,7 +1113,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           message: 'Account created successfully.',
         };
       } catch (error: any) {
-        return { success: false, message: error?.message || 'Signup failed.' };
+        const rawMessage = String(error?.message || '').trim();
+        const message = rawMessage || 'Signup failed.';
+        const looksLikeNetworkError =
+          /failed to fetch/i.test(message) ||
+          /could not be resolved/i.test(message) ||
+          /name resolution/i.test(message) ||
+          /networkerror/i.test(message);
+
+        // If Supabase can't be reached (DNS/network), fall back to standalone/local mode
+        // so the app can still be used for demos/offline dev.
+        if (looksLikeNetworkError) {
+          console.warn('Supabase signup failed due to network; falling back to local signup.', error);
+        } else {
+          return { success: false, message };
+        }
       }
     }
 
@@ -1000,53 +1138,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { success: false, message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` };
       }
       
-      if (users.some(u => u.email === email)) {
+      if (users.some(u => normalizeEmail(u.email) === normalizedEmail)) {
         return { success: false, message: 'Email already exists' };
       }
 
       if (requestedCoach) {
-        const method = payload.verificationMethod;
-        const documentName = payload.verificationDocumentName?.trim() || '';
-        if (!payload.name?.trim()) {
-          return { success: false, message: 'Full name is required for coach registration.' };
-        }
-        if (!method) {
-          return { success: false, message: 'Verification method is required for coach registration.' };
-        }
-        if (!documentName) {
-          return { success: false, message: 'Verification document name is required for coach registration.' };
-        }
-        const newCoach: User = {
-          id: Math.random().toString(36).substr(2, 9),
-          email,
-          name: payload.name.trim(),
-          role: 'coach',
-          status: 'pending',
-          avatar: '',
-          phone: payload.phone?.trim() || '',
-          skillLevel: 'beginner',
-          coachProfile: payload.coachProfile?.trim() || '',
-          coachExpertise: (payload.coachExpertise || []).filter(Boolean),
-          coachVerificationStatus: 'pending',
-          coachVerificationMethod: method,
-          coachVerificationDocumentName: documentName,
-          coachVerificationId: payload.verificationId?.trim() || undefined,
-          coachVerificationNotes: payload.verificationNotes?.trim() || undefined,
-          coachVerificationSubmittedAt: new Date().toISOString(),
-          createdAt: new Date(),
-        };
-
-        const updatedUsers = [...users, newCoach];
-        setUsers(updatedUsers);
-        persist(STORAGE_KEYS.USERS, updatedUsers);
-
-        const auth = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH) || '{}');
-        auth[email] = password;
-        persist(STORAGE_KEYS.AUTH, auth);
-        return {
-          success: true,
-          message: 'Your coach account request is under review by the administrator.',
-        };
+        return addPendingCoachRegistration();
       }
 
       const normalizedRole = role.toLowerCase();
@@ -1060,7 +1157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const newUser: User = {
         id: Math.random().toString(36).substr(2, 9),
-        email,
+        email: normalizedEmail,
         name: payload.name?.trim() || email.split('@')[0],
         role: role as any,
         status: 'active',
@@ -1080,7 +1177,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Save auth
       const auth = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH) || '{}');
-      auth[email] = password;
+      auth[normalizedEmail] = password;
       persist(STORAGE_KEYS.AUTH, auth);
 
       return {
@@ -1455,64 +1552,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await cancelBooking(id);
   };
 
-  const getAvailableSlots = async (courtId: string, date: Date, bookingType: BookingType = 'private'): Promise<string[]> => {
-    if (usingBackendApi) {
-      return await backendApi.getAvailableSlots(courtId, date, bookingType);
-    }
+  const getAvailableSlots = useCallback(
+    async (courtId: string, date: Date, bookingType: BookingType = 'private'): Promise<string[]> => {
+      if (usingBackendApi) {
+        return await backendApi.getAvailableSlots(courtId, date, bookingType);
+      }
 
-    const court = courts.find((c) => c.id === courtId);
-    if (!court) return [];
+      const court = courts.find((c) => c.id === courtId);
+      if (!court) return [];
 
-    const slots: string[] = [];
-    const [startHour, startMin] = court.operatingHours.start.split(':').map(Number);
-    const [endHour, endMin] = court.operatingHours.end.split(':').map(Number);
+      const slots: string[] = [];
+      const [startHour, startMin] = court.operatingHours.start.split(':').map(Number);
+      const [endHour, endMin] = court.operatingHours.end.split(':').map(Number);
 
-    let currentHour = startHour;
-    let currentMin = startMin;
+      let currentHour = startHour;
+      let currentMin = startMin;
 
-    while (currentHour < endHour || (currentHour === endHour && currentMin < endMin)) {
-      const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+      while (currentHour < endHour || (currentHour === endHour && currentMin < endMin)) {
+        const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
 
-      // Find all active bookings for this slot
-      const slotBookings = bookings.filter(
-        (b) =>
-          b.courtId === courtId &&
-          isSameDay(b.date, date) &&
-          b.status !== 'cancelled' &&
-          b.startTime === timeStr
-      );
+        // Find all active bookings for this slot
+        const slotBookings = bookings.filter(
+          (b) =>
+            b.courtId === courtId &&
+            isSameDay(b.date, date) &&
+            b.status !== 'cancelled' &&
+            b.startTime === timeStr
+        );
 
-      let isAvailable = true;
+        let isAvailable = true;
 
-      if (slotBookings.length > 0) {
-        // If any private/training booking exists, slot is blocked
-        const hasExclusiveBooking = slotBookings.some(b => b.type === 'private' || b.type === 'training');
-        
-        if (hasExclusiveBooking) {
-          isAvailable = false;
-        } else if (bookingType === 'private' || bookingType === 'training') {
-          // Cannot book private if any open play exists
-          isAvailable = false;
-        } else {
-          // Requesting open play, check capacity (default 4 for now)
-          const totalPlayers = slotBookings.reduce((acc, b) => acc + 1 + (b.players?.length || 0), 0);
-          if (totalPlayers >= 4) isAvailable = false;
+        if (slotBookings.length > 0) {
+          // If any private/training booking exists, slot is blocked
+          const hasExclusiveBooking = slotBookings.some((b) => b.type === 'private' || b.type === 'training');
+
+          if (hasExclusiveBooking) {
+            isAvailable = false;
+          } else if (bookingType === 'private' || bookingType === 'training') {
+            // Cannot book private if any open play exists
+            isAvailable = false;
+          } else {
+            // Requesting open play, check capacity (default 4 for now)
+            const totalPlayers = slotBookings.reduce((acc, b) => acc + 1 + (b.players?.length || 0), 0);
+            if (totalPlayers >= 4) isAvailable = false;
+          }
+        }
+
+        if (isAvailable) {
+          slots.push(timeStr);
+        }
+
+        currentMin += config.bookingInterval;
+        if (currentMin >= 60) {
+          currentHour += 1;
+          currentMin -= 60;
         }
       }
 
-      if (isAvailable) {
-        slots.push(timeStr);
-      }
-
-      currentMin += config.bookingInterval;
-      if (currentMin >= 60) {
-        currentHour += 1;
-        currentMin -= 60;
-      }
-    }
-
-    return slots;
-  };
+      return slots;
+    },
+    [bookings, config.bookingInterval, courts, usingBackendApi]
+  );
 
   const getBookingAnalytics = async (startDate: Date, endDate: Date): Promise<BookingAnalytics> => {
     if (usingBackendApi) {
@@ -1710,7 +1810,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           Boolean(u.coachVerificationMethod) ||
           Boolean(u.coachVerificationDocumentName)
       )
-      .filter((u) => !status || (u.coachVerificationStatus || 'unverified') === status)
+      .filter((u) => {
+        if (!status) return true;
+        const effectiveStatus =
+          u.coachVerificationStatus || (u.role === 'coach' && u.status === 'pending' ? 'pending' : 'unverified');
+        return effectiveStatus === status;
+      })
       .sort(
         (a, b) =>
           new Date(b.coachVerificationSubmittedAt || b.createdAt).getTime() -
@@ -2169,6 +2274,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
+        bootstrapped,
         currentUser,
         users,
         courts,

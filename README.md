@@ -63,12 +63,17 @@ Important:
 - Google/Facebook must be enabled in `Supabase -> Authentication -> Providers`.
 - The provider callback in Google/Meta is the Supabase callback, not your local Vite URL.
 - Your browser app redirect stays `http://localhost:5173/auth/callback`.
+- If your deploy URL differs from the current browser origin, set `VITE_SITE_URL` so auth redirects use the correct public origin.
 
 ## Optional: Use Backend API
 
 Frontend can run in API-backed mode (for requests, notifications, and subscriptions) by setting:
 - `VITE_USE_BACKEND_API=true`
 - `VITE_API_BASE_URL=<your-api-base-url>`
+
+Production note:
+- If `VITE_API_BASE_URL` is not set in a production build and `VITE_SUPABASE_URL` is set, the frontend defaults to calling
+  `https://<project-ref>.supabase.co/functions/v1/server/api/v1` automatically.
 
 Local dev options:
 - Direct mode (no proxy): `VITE_API_BASE_URL=http://localhost:54321/functions/v1/server/api/v1`
