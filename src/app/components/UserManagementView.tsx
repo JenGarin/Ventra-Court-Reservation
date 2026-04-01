@@ -226,7 +226,7 @@ export function UserManagementView() {
             </div>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {(!verificationQueueLoaded || isVerificationLoading) && (
+            {!verificationQueueLoaded && verificationQueue.length === 0 && (
               <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Loading verification queue...</p>
             )}
             {verificationQueueLoaded && !isVerificationLoading && verificationQueue.length === 0 && (
@@ -240,42 +240,52 @@ export function UserManagementView() {
                 )}
               </div>
             )}
-            {verificationQueueLoaded &&
-              !isVerificationLoading &&
-              verificationQueue.map((coach) => (
-                <div key={coach.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-slate-900 dark:text-white text-sm">{coach.name || coach.email}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{coach.email}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {coach.coachVerificationMethod || 'method not set'} - {coach.coachVerificationDocumentName || 'document not set'}
-                    </p>
-                    {coach.coachVerificationNotes && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Notes: {coach.coachVerificationNotes}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                        coach.coachVerificationStatus === 'verified'
-                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'
-                          : coach.coachVerificationStatus === 'pending'
-                            ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300'
-                            : 'bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400'
-                      }`}
-                    >
-                      {coach.coachVerificationStatus === 'verified' ? <BadgeCheck size={10} /> : coach.coachVerificationStatus === 'pending' ? <Clock3 size={10} /> : <XCircle size={10} />}
-                      {coach.coachVerificationStatus || 'unverified'}
+            {verificationQueueLoaded && verificationQueue.length > 0 && (
+              <div className="relative">
+                {isVerificationLoading && (
+                  <div className="absolute inset-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-[1px] z-10 flex items-start justify-end p-4">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white/90 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1">
+                      Refreshing…
                     </span>
-                    <button
-                      onClick={() => openCoachReviewModal(coach.id, coach.name || coach.email)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-700 dark:hover:bg-teal-600 transition-colors"
-                    >
-                      {coach.coachVerificationStatus === 'pending' ? 'Review' : 'View'}
-                    </button>
                   </div>
-                </div>
-              ))}
+                )}
+
+                {verificationQueue.map((coach) => (
+                  <div key={coach.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white text-sm">{coach.name || coach.email}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{coach.email}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {coach.coachVerificationMethod || 'method not set'} - {coach.coachVerificationDocumentName || 'document not set'}
+                      </p>
+                      {coach.coachVerificationNotes && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Notes: {coach.coachVerificationNotes}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                          coach.coachVerificationStatus === 'verified'
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'
+                            : coach.coachVerificationStatus === 'pending'
+                              ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300'
+                              : 'bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400'
+                        }`}
+                      >
+                        {coach.coachVerificationStatus === 'verified' ? <BadgeCheck size={10} /> : coach.coachVerificationStatus === 'pending' ? <Clock3 size={10} /> : <XCircle size={10} />}
+                        {coach.coachVerificationStatus || 'unverified'}
+                      </span>
+                      <button
+                        onClick={() => openCoachReviewModal(coach.id, coach.name || coach.email)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-teal-700 dark:hover:bg-teal-600 transition-colors"
+                      >
+                        {coach.coachVerificationStatus === 'pending' ? 'Review' : 'View'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
