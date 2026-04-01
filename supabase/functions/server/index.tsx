@@ -1471,6 +1471,8 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
     const existing = (await kv.get(`user:${authUserId}`)) as ApiUser | null;
     const nameFromMetadata = String(authUser.user_metadata?.name || "").trim();
     const phoneFromMetadata = String(authUser.user_metadata?.phone || "").trim();
+    const metadataRoleRaw = String(authUser.user_metadata?.role || "").trim().toLowerCase();
+    const metadataStatusRaw = String(authUser.user_metadata?.status || "").trim().toLowerCase();
 
     let user: ApiUser;
     if (existing) {
@@ -1479,12 +1481,14 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
         status: isUserStatus(String((existing as any)?.status || "")) ? (existing as any).status : "active",
       };
     } else {
+      const roleFromMetadata = isRole(metadataRoleRaw) ? (metadataRoleRaw as Role) : "player";
+      const statusFromMetadata = isUserStatus(metadataStatusRaw) ? (metadataStatusRaw as UserStatus) : "active";
       user = {
         id: authUserId,
         email,
         name: nameFromMetadata || email.split("@")[0] || "User",
-        role: "player",
-        status: "active",
+        role: roleFromMetadata,
+        status: statusFromMetadata,
         phone: phoneFromMetadata || undefined,
         createdAt: nowIso(),
       };
@@ -2441,6 +2445,7 @@ app.post(`${API_BASE}/admin/coaches/:id/verification/approve`, async (c) => {
           name: registration.name,
           phone: registration.phone || "",
           role: "coach",
+          status: "active",
         },
       });
       if (error || !data?.user?.id) {
@@ -2526,6 +2531,24 @@ app.post(`${API_BASE}/admin/coaches/:id/verification/approve`, async (c) => {
     coachVerificationNotes: String(body?.notes || coach.coachVerificationNotes || "").trim() || undefined,
   };
   await kv.set(`user:${coach.id}`, updated);
+  if (authMode() === "supabase" && hasSupabaseServiceEnv()) {
+    try {
+      const admin = await supabaseServiceClient();
+      const before = await admin.auth.admin.getUserById(updated.id);
+      const existingMetadata = (before as any)?.data?.user?.user_metadata ?? {};
+      await admin.auth.admin.updateUserById(updated.id, {
+        user_metadata: {
+          ...existingMetadata,
+          role: "coach",
+          status: "active",
+          name: updated.name,
+          phone: updated.phone || "",
+        },
+      });
+    } catch {
+      // Best-effort only; the app enforces roles/status via app_users/kv store.
+    }
+  }
   await notify({
     userId: coach.id,
     title: "Coach Verification Approved",
