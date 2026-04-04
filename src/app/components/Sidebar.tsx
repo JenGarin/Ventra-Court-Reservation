@@ -24,6 +24,7 @@ import { useApp } from '@/context/AppContext';
 import { useTheme } from 'next-themes';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { toast } from 'sonner';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -37,7 +38,7 @@ interface SidebarProps {
 
 export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
   const { resolvedTheme, setTheme } = useTheme();
-  const { unreadNotificationCount, currentUser, logout, bookings } = useApp();
+  const { unreadNotificationCount, currentUser, logout, bookings, getCoachVerificationQueue } = useApp();
   const navigate = useNavigate();
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false);
   const isPaymentFlowActive = React.useMemo(() => {
@@ -56,6 +57,38 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
   }, []);
   const [unreadCount, setUnreadCount] = React.useState(() => unreadNotificationCount);
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
+  const [pendingCoachApprovals, setPendingCoachApprovals] = React.useState(0);
+  const lastCoachToastKey = 'ventra_admin_pending_coach_count';
+
+  React.useEffect(() => {
+    if (role !== 'admin' && role !== 'staff') return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const rows = await getCoachVerificationQueue({ status: 'pending' });
+        const nextCount = Array.isArray(rows) ? rows.length : 0;
+        if (cancelled) return;
+        setPendingCoachApprovals(nextCount);
+
+        const prevRaw = sessionStorage.getItem(lastCoachToastKey);
+        const prev = prevRaw ? Number(prevRaw) : 0;
+        if (Number.isFinite(prev) && nextCount > prev && prev >= 0) {
+          toast.info(`${nextCount} coach application(s) pending review.`);
+        }
+        sessionStorage.setItem(lastCoachToastKey, String(nextCount));
+      } catch {
+        // ignore background errors
+      }
+    };
+
+    load();
+    const interval = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [getCoachVerificationQueue, role]);
 
   React.useEffect(() => {
     const dropDelayMs = isPaymentFlowActive ? 8000 : 600;
@@ -148,6 +181,11 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
               {item.id === 'requests' && pendingCount > 0 && (
                 <span className="absolute right-3 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                   {pendingCount}
+                </span>
+              )}
+              {item.id === 'users' && (role === 'admin' || role === 'staff') && pendingCoachApprovals > 0 && (
+                <span className="absolute right-3 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                  {pendingCoachApprovals}
                 </span>
               )}
             </button>
