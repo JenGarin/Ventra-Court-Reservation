@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { Search, Filter, Trash2, Mail, CheckCircle, BadgeCheck, Clock3, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,8 +27,6 @@ export function UserManagementView() {
   const [verificationQueue, setVerificationQueue] = useState<typeof users>([]);
   const [isVerificationLoading, setIsVerificationLoading] = useState(false);
   const [verificationQueueLoaded, setVerificationQueueLoaded] = useState(false);
-  const verificationQueueBodyRef = useRef<HTMLDivElement | null>(null);
-  const [verificationQueueMinHeight, setVerificationQueueMinHeight] = useState<number | null>(null);
   const [verificationReviewModal, setVerificationReviewModal] = useState<{
     open: boolean;
     mode: 'view' | 'approve' | 'reject';
@@ -108,14 +106,6 @@ export function UserManagementView() {
       setVerificationQueueLoaded(true);
       return;
     }
-    try {
-      const currentHeight = verificationQueueBodyRef.current?.offsetHeight;
-      if (typeof currentHeight === 'number' && currentHeight > 0) {
-        setVerificationQueueMinHeight(currentHeight);
-      }
-    } catch {
-      // ignore
-    }
     setIsVerificationLoading(true);
     try {
       const rows = await getCoachVerificationQueue({ status: verificationFilter });
@@ -125,10 +115,6 @@ export function UserManagementView() {
     } finally {
       setIsVerificationLoading(false);
       setVerificationQueueLoaded(true);
-      // Release the reserved height on the next paint to avoid layout jumps/blink.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setVerificationQueueMinHeight(null));
-      });
     }
   };
 
@@ -255,11 +241,7 @@ export function UserManagementView() {
               </button>
             </div>
           </div>
-          <div
-            ref={verificationQueueBodyRef}
-            className="divide-y divide-slate-100 dark:divide-slate-800"
-            style={verificationQueueMinHeight ? { minHeight: verificationQueueMinHeight } : undefined}
-          >
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 h-72 overflow-y-auto">
             {!verificationQueueLoaded && verificationQueue.length === 0 && (
               <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Loading verification queue...</p>
             )}
