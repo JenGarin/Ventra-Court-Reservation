@@ -18,7 +18,8 @@ import {
   Receipt,
   ClipboardList,
   ListChecks,
-  UserRoundPlus
+  UserRoundPlus,
+  X
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { useTheme } from 'next-themes';
@@ -34,9 +35,11 @@ interface SidebarProps {
   currentView: string;
   onViewChange: (view: string) => void;
   role: 'admin' | 'staff' | 'coach' | 'player';
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
+export function Sidebar({ currentView, onViewChange, role, isOpen = false, onClose }: SidebarProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const { unreadNotificationCount, currentUser, logout, bookings, getCoachVerificationQueue } = useApp();
   const navigate = useNavigate();
@@ -126,10 +129,23 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
 
   const filteredItems = menuItems.filter(item => item.roles.includes(role));
 
-  return (
-    <aside className="w-64 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-screen flex flex-col fixed left-0 top-0 transition-colors duration-300 overflow-hidden">
-      <div className="p-6 flex items-center justify-center">
-        <img src="/ventra-logo.png" alt="Ventra" className="h-24 w-auto" />
+  const handleNavClick = (id: string) => {
+    onViewChange(id);
+    onClose?.();
+  };
+
+  const sidebarContent = (
+    <aside className="w-64 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-full flex flex-col overflow-hidden">
+      <div className="p-6 flex items-center justify-between">
+        <img src="/ventra-logo.png" alt="Ventra" className="h-20 w-auto" />
+        {/* Close button — mobile only */}
+        <button
+          onClick={onClose}
+          className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+          aria-label="Close menu"
+        >
+          <X size={20} />
+        </button>
       </div>
 
       <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
@@ -141,7 +157,7 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
             return (
               <button
                 key={item.id}
-                onClick={() => onViewChange('notifications')}
+                onClick={() => handleNavClick('notifications')}
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors relative",
                   isActive
@@ -163,7 +179,7 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
           return (
             <button
               key={item.id}
-              onClick={() => onViewChange(item.id)}
+              onClick={() => handleNavClick(item.id)}
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors relative",
                 isActive 
@@ -173,11 +189,6 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
             >
               <Icon size={20} />
               {item.label}
-              {item.id === 'notifications' && unreadCount > 0 && (
-                <span className="absolute right-3 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
-                  {unreadCount}
-                </span>
-              )}
               {item.id === 'requests' && pendingCount > 0 && (
                 <span className="absolute right-3 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                   {pendingCount}
@@ -203,7 +214,7 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
         </button>
 
         <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-teal-100 dark:bg-teal-900 flex items-center justify-center text-teal-700 dark:text-teal-400 font-bold">
+          <div className="w-10 h-10 rounded-full bg-teal-100 dark:bg-teal-900 flex items-center justify-center text-teal-700 dark:text-teal-400 font-bold shrink-0">
             {role.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
@@ -219,6 +230,40 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
           Sign Out
         </button>
       </div>
+    </aside>
+  );
+
+  return (
+    <>
+      {/* Desktop sidebar — fixed on large screens */}
+      <div className="hidden lg:flex lg:flex-col lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-64 z-30">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile sidebar — overlay drawer */}
+      {createPortal(
+        <>
+          {/* Backdrop */}
+          <div
+            className={cn(
+              "fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 lg:hidden",
+              isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            )}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          {/* Drawer */}
+          <div
+            className={cn(
+              "fixed left-0 top-0 h-full w-72 max-w-[85vw] z-50 shadow-2xl transition-transform duration-300 ease-in-out lg:hidden",
+              isOpen ? "translate-x-0" : "-translate-x-full"
+            )}
+          >
+            {sidebarContent}
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Logout Confirmation Modal */}
       {isLogoutConfirmOpen &&
@@ -245,7 +290,6 @@ export function Sidebar({ currentView, onViewChange, role }: SidebarProps) {
           </div>,
           document.body
         )}
-    </aside>
+    </>
   );
 }
-
