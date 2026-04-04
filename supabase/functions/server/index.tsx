@@ -1084,6 +1084,25 @@ const notify = async (payload: Omit<ApiNotification, "id" | "createdAt" | "read"
   await kv.set(`notification:${item.id}`, item);
   return item;
 };
+
+const notifyAdminsOfCoachApplication = async (coach: ApiUser) => {
+  const users = (await kv.getByPrefix("user:")) as ApiUser[];
+  const recipients = users.filter((u) => u.role === "admin" || u.role === "staff");
+  if (!recipients.length) return;
+
+  const method = coach.coachVerificationMethod ? ` (${coach.coachVerificationMethod})` : "";
+  const doc = coach.coachVerificationDocumentName ? ` - ${coach.coachVerificationDocumentName}` : "";
+  await Promise.all(
+    recipients.map((recipient) =>
+      notify({
+        userId: recipient.id,
+        title: "New Coach Application",
+        message: `${coach.name} (${coach.email}) submitted a coach application${method}${doc}.`,
+        type: "info",
+      }),
+    ),
+  );
+};
 const writeAuditLog = async (payload: Omit<ApiAuditLog, "id" | "createdAt">) => {
   const log: ApiAuditLog = {
     id: id(),
@@ -1855,6 +1874,13 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       createdAt: nowIso(),
     };
     await kv.set(`user:${created.id}`, created);
+    if (role === "coach") {
+      try {
+        await notifyAdminsOfCoachApplication(created);
+      } catch {
+        // ignore notification failures
+      }
+    }
     await writeAuditLog({
       action: "auth_signup_succeeded",
       entityType: "auth",
@@ -1893,6 +1919,13 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
   };
   await kv.set(`user:${newUser.id}`, newUser);
   await setUserPassword(newUser.id, password);
+  if (role === "coach") {
+    try {
+      await notifyAdminsOfCoachApplication(newUser);
+    } catch {
+      // ignore notification failures
+    }
+  }
   await writeAuditLog({
     action: "auth_signup_succeeded",
     entityType: "auth",

@@ -13,7 +13,7 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "dev:host": "vite --host 0.0.0.0 --port 5173",
     "dev:static": "deno run --allow-net --allow-read serve-dist.ts 5173",
-    "test:backend": "deno test --allow-env supabase/functions/server/index.test.ts",
+    "test:backend": "deno test --allow-env --config supabase/functions/server/deno.json supabase/functions/server/index.test.ts",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "preview:host": "vite preview --host 0.0.0.0 --port 4173"
   },
