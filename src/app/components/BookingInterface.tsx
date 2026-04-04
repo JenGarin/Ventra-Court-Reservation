@@ -118,7 +118,7 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
   const rateForTime = (courtId: string, startTime: string) => {
     const court = courts.find((c) => c.id === courtId);
     if (!court) return 0;
-    const isPeak = config.peakHours.some((peak) => startTime >= peak.start && startTime <= peak.end);
+    const isPeak = config.peakHours.some((peak) => startTime >= peak.start && startTime < peak.end);
     return isPeak && court.peakHourRate ? court.peakHourRate : court.hourlyRate;
   };
 

@@ -175,7 +175,10 @@ export function UserManagementView() {
       }
       setVerificationReviewModal((prev) => ({ ...prev, open: false }));
       setVerificationReviewText('');
-      await loadVerificationQueue();
+      // Remove the processed coach from the queue directly to avoid
+      // triggering the loading overlay which causes a layout shift and
+      // makes the users table below appear to blink.
+      setVerificationQueue((prev) => prev.filter((u) => u.id !== coachId));
     } catch (error) {
       toast.error(
         errorMessage(

@@ -852,7 +852,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       'staff@court.com': 'staff',
       'coach@court.com': 'coach',
       'player@court.com': 'player',
-      'junavirtudazo@gmail.com': 'admin' // Dev backdoor
     };
 
     // Check stored credentials
@@ -873,7 +872,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // Recover missing local user record for valid credentials.
-      const roleFromSeed = (normalizedEmail === 'admin@court.com' || normalizedEmail === 'junavirtudazo@gmail.com')
+      const roleFromSeed = normalizedEmail === 'admin@court.com'
         ? 'admin'
         : normalizedEmail === 'staff@court.com'
           ? 'staff'
@@ -903,17 +902,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       persist(STORAGE_KEYS.USERS, updatedUsers);
       setCurrentUser(recoveredUser);
       localStorage.setItem('currentUser', JSON.stringify(recoveredUser));
-      return { success: true };
-    }
-
-    // Fallback for dev user if not in users list yet
-    if (normalizedEmail === 'junavirtudazo@gmail.com') {
-      const devUser: User = { id: 'dev-1', email: normalizedEmail, name: 'Juna Virtudazo', role: 'admin', status: 'active', avatar: '', phone: '', skillLevel: 'expert', createdAt: new Date() };
-      if (expectedRole && !roleMatchesExpected(devUser.role, expectedRole)) {
-        return { success: false, message: makeRoleMismatchMessage(expectedRole) };
-      }
-      setCurrentUser(devUser);
-      localStorage.setItem('currentUser', JSON.stringify(devUser));
       return { success: true };
     }
 
@@ -1552,6 +1540,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await cancelBooking(id);
   };
 
+  const toTimeMinutes = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
   const getAvailableSlots = useCallback(
     async (courtId: string, date: Date, bookingType: BookingType = 'private'): Promise<string[]> => {
       if (usingBackendApi) {
@@ -1571,13 +1564,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       while (currentHour < endHour || (currentHour === endHour && currentMin < endMin)) {
         const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
 
-        // Find all active bookings for this slot
+        // Find all active bookings that overlap this slot
+        const slotStartMinutes = toTimeMinutes(timeStr);
+        const slotEndMinutes = slotStartMinutes + config.bookingInterval;
         const slotBookings = bookings.filter(
           (b) =>
             b.courtId === courtId &&
             isSameDay(b.date, date) &&
             b.status !== 'cancelled' &&
-            b.startTime === timeStr
+            toTimeMinutes(b.startTime) < slotEndMinutes &&
+            toTimeMinutes(b.endTime) > slotStartMinutes
         );
 
         let isAvailable = true;

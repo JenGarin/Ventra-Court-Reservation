@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Menu } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
@@ -101,6 +102,7 @@ function DashboardLayout() {
   }
 
   const currentView = location.pathname.split('/')[1] || 'dashboard';
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleViewChange = (view: string) => {
     navigate(`/${view}`);
@@ -111,9 +113,23 @@ function DashboardLayout() {
       <Sidebar 
         currentView={currentView} 
         onViewChange={handleViewChange} 
-        role={currentUser.role as any} 
+        role={currentUser.role as any}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
-      <main className="flex-1 ml-64 p-8 overflow-y-auto h-screen">
+      {/* Mobile top header — hidden on lg+ where sidebar is always visible */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-30 h-14 flex items-center justify-between px-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu size={22} />
+        </button>
+        <img src="/ventra-logo.png" alt="Ventra" className="h-8 w-auto" />
+        <div className="w-10" />{/* spacer to center logo */}
+      </header>
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 p-4 lg:p-8 overflow-y-auto h-screen">
         <Outlet />
       </main>
     </div>

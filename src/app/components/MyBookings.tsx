@@ -49,10 +49,14 @@ export function MyBookings() {
     return () => window.clearTimeout(timeout);
   }, [activeBookings, landedFromPayment]);
 
-  const handleCancel = (bookingId: string) => {
+  const handleCancel = async (bookingId: string) => {
     if (confirm('Are you sure you want to cancel this booking?')) {
-      cancelBooking(bookingId);
-      toast.success('Booking cancelled successfully');
+      try {
+        await cancelBooking(bookingId);
+        toast.success('Booking cancelled successfully');
+      } catch (error: any) {
+        toast.error(error?.message || 'Failed to cancel booking.');
+      }
     }
   };
 
@@ -136,7 +140,7 @@ export function MyBookings() {
                       <div className="mt-3 text-sm text-slate-700 dark:text-slate-300 space-y-1.5">
                         <p className="inline-flex items-center gap-1.5"><MapPin size={13} /> {meta.location}</p>
                         <p className="inline-flex items-center gap-1.5"><Calendar size={13} /> {format(booking.date, 'MMMM dd, yyyy')}</p>
-                        <p className="inline-flex items-center gap-1.5"><Clock3 size={13} /> {booking.startTime} - {booking.endTime} ({Math.round(booking.duration / 60)} Hours)</p>
+                        <p className="inline-flex items-center gap-1.5"><Clock3 size={13} /> {booking.startTime} - {booking.endTime} ({booking.duration % 60 === 0 ? booking.duration / 60 : (booking.duration / 60).toFixed(1)} Hours)</p>
                       </div>
 
                       {booking.notes && (
