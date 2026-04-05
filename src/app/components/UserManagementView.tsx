@@ -29,12 +29,10 @@ export function UserManagementView() {
   const [verificationQueueLoaded, setVerificationQueueLoaded] = useState(false);
   const [verificationReviewModal, setVerificationReviewModal] = useState<{
     open: boolean;
-    mode: 'view' | 'approve' | 'reject';
     coachId: string;
     coachName: string;
   }>({
     open: false,
-    mode: 'view',
     coachId: '',
     coachName: '',
   });
@@ -134,7 +132,6 @@ export function UserManagementView() {
     setVerificationReviewText('');
     setVerificationReviewModal({
       open: true,
-      mode: 'view',
       coachId,
       coachName,
     });
@@ -146,10 +143,9 @@ export function UserManagementView() {
     setVerificationReviewText('');
   };
 
-  const handleSubmitVerificationReview = async () => {
-    const { coachId, mode } = verificationReviewModal;
+  const handleSubmitVerificationReview = async (mode: 'approve' | 'reject') => {
+    const { coachId } = verificationReviewModal;
     if (!coachId) return;
-    if (mode !== 'approve' && mode !== 'reject') return;
     setIsSubmittingVerificationReview(true);
     try {
       if (mode === 'approve') {
@@ -381,11 +377,7 @@ export function UserManagementView() {
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
             <div className="p-5 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                {verificationReviewModal.mode === 'view'
-                  ? 'Review Coach Application'
-                  : verificationReviewModal.mode === 'approve'
-                    ? 'Approve Coach Verification'
-                    : 'Reject Coach Verification'}
+                Review Coach Application
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                 {verificationReviewModal.coachName}
@@ -450,85 +442,44 @@ export function UserManagementView() {
                 </div>
               )}
 
-              {verificationReviewModal.mode !== 'view' && (
+              {coachUnderReview?.coachVerificationStatus === 'pending' && (
                 <>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {verificationReviewModal.mode === 'approve' ? 'Approval note (optional)' : 'Rejection reason (optional)'}
+                    Admin note (optional)
                   </label>
                   <textarea
                     value={verificationReviewText}
                     onChange={(e) => setVerificationReviewText(e.target.value)}
                     rows={4}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none resize-none"
-                    placeholder={
-                      verificationReviewModal.mode === 'approve'
-                        ? 'Add optional internal review note.'
-                        : 'Explain why this verification is being rejected.'
-                    }
+                    placeholder="Add an optional note for approval, or a reason if rejecting."
                   />
                 </>
               )}
             </div>
             <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
-              {verificationReviewModal.mode === 'view' ? (
+              <button
+                onClick={closeVerificationReviewModal}
+                disabled={isSubmittingVerificationReview}
+                className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+              >
+                Close
+              </button>
+              {coachUnderReview?.coachVerificationStatus === 'pending' && (
                 <>
                   <button
-                    onClick={closeVerificationReviewModal}
+                    onClick={() => void handleSubmitVerificationReview('reject')}
                     disabled={isSubmittingVerificationReview}
-                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+                    className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-60"
                   >
-                    Close
-                  </button>
-                  {coachUnderReview?.coachVerificationStatus === 'pending' && (
-                    <>
-                      <button
-                        onClick={() => {
-                          setVerificationReviewText('');
-                          setVerificationReviewModal((prev) => ({ ...prev, mode: 'reject' }));
-                        }}
-                        className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        onClick={() => {
-                          setVerificationReviewText('');
-                          setVerificationReviewModal((prev) => ({ ...prev, mode: 'approve' }));
-                        }}
-                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
-                      >
-                        Approve
-                      </button>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      if (isSubmittingVerificationReview) return;
-                      setVerificationReviewModal((prev) => ({ ...prev, mode: 'view' }));
-                      setVerificationReviewText('');
-                    }}
-                    disabled={isSubmittingVerificationReview}
-                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
-                  >
-                    Back
+                    {isSubmittingVerificationReview ? 'Submitting...' : 'Reject'}
                   </button>
                   <button
-                    onClick={() => void handleSubmitVerificationReview()}
+                    onClick={() => void handleSubmitVerificationReview('approve')}
                     disabled={isSubmittingVerificationReview}
-                    className={`px-4 py-2 rounded-lg text-white disabled:opacity-60 ${
-                      verificationReviewModal.mode === 'approve'
-                        ? 'bg-emerald-600 hover:bg-emerald-700'
-                        : 'bg-rose-600 hover:bg-rose-700'
-                    }`}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
                   >
-                    {isSubmittingVerificationReview
-                      ? 'Submitting...'
-                      : verificationReviewModal.mode === 'approve'
-                        ? 'Approve'
-                        : 'Reject'}
+                    {isSubmittingVerificationReview ? 'Submitting...' : 'Approve'}
                   </button>
                 </>
               )}
