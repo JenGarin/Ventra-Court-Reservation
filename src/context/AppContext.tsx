@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import {
   User,
   Court,
@@ -222,6 +222,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   });
   const [users, setUsers] = useState<User[]>([]);
+  const usersRef = useRef<User[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [config, setConfig] = useState<FacilityConfig>(defaultConfig);
@@ -233,9 +234,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const localUnreadNotificationCount = notifications.filter((n) => n.userId === currentUser?.id && !n.read).length;
   const unreadNotificationCount = usingBackendApi
     ? (backendUnreadNotificationCount == null
-        ? localUnreadNotificationCount
-        : Math.max(backendUnreadNotificationCount, localUnreadNotificationCount))
+         ? localUnreadNotificationCount
+         : Math.max(backendUnreadNotificationCount, localUnreadNotificationCount))
     : localUnreadNotificationCount;
+
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
 
   const mapBackendSubscription = (subscription: any): UserSubscription => {
     const membershipId = String(subscription?.planId || subscription?.membership_id || '');
@@ -395,54 +400,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [usingBackendApi]
   );
 
-  const upsertAndSetCurrentUser = (
-    email: string,
-    role: string = 'player',
-    profile: Partial<User> = {}
-  ) => {
-    const existing = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (existing) {
-      const updatedExisting: User = {
-        ...existing,
-        ...profile,
-        email,
-        role: (profile.role || existing.role || role) as User['role'],
-        status: (profile.status || existing.status || 'active') as User['status'],
+  const upsertAndSetCurrentUser = useCallback(
+    (email: string, role: string = 'player', profile: Partial<User> = {}) => {
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      if (!normalizedEmail) return;
+
+      const snapshot = usersRef.current;
+      const existing = snapshot.find((u) => String(u.email || '').trim().toLowerCase() === normalizedEmail);
+      if (existing) {
+        const updatedExisting: User = {
+          ...existing,
+          ...profile,
+          email: normalizedEmail,
+          role: (profile.role || existing.role || role) as User['role'],
+          status: (profile.status || existing.status || 'active') as User['status'],
+        };
+        const updatedUsers = snapshot.map((u) => (u.id === existing.id ? updatedExisting : u));
+        usersRef.current = updatedUsers;
+        setUsers(updatedUsers);
+        persist(STORAGE_KEYS.USERS, updatedUsers);
+        setCurrentUser(updatedExisting);
+        localStorage.setItem('currentUser', JSON.stringify(updatedExisting));
+        return;
+      }
+
+      const newUser: User = {
+        id: Math.random().toString(36).substr(2, 9),
+        email: normalizedEmail,
+        name: profile.name || normalizedEmail.split('@')[0],
+        role: (profile.role || role) as any,
+        status: (profile.status || 'active') as User['status'],
+        avatar: profile.avatar || '',
+        phone: profile.phone || '',
+        skillLevel: profile.skillLevel || 'beginner',
+        coachProfile: profile.coachProfile,
+        coachExpertise: profile.coachExpertise,
+        coachVerificationStatus: profile.coachVerificationStatus || (role === 'coach' ? 'unverified' : undefined),
+        coachVerificationMethod: profile.coachVerificationMethod,
+        coachVerificationDocumentName: profile.coachVerificationDocumentName,
+        coachVerificationId: profile.coachVerificationId,
+        coachVerificationNotes: profile.coachVerificationNotes,
+        coachVerificationSubmittedAt: profile.coachVerificationSubmittedAt,
+        createdAt: new Date(),
       };
-      const updatedUsers = users.map((u) => (u.id === existing.id ? updatedExisting : u));
+
+      const updatedUsers = [...snapshot, newUser];
+      usersRef.current = updatedUsers;
       setUsers(updatedUsers);
       persist(STORAGE_KEYS.USERS, updatedUsers);
-      setCurrentUser(updatedExisting);
-      localStorage.setItem('currentUser', JSON.stringify(updatedExisting));
-      return;
-    }
-
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      email,
-      name: profile.name || email.split('@')[0],
-      role: (profile.role || role) as any,
-      status: (profile.status || 'active') as User['status'],
-      avatar: profile.avatar || '',
-      phone: profile.phone || '',
-      skillLevel: profile.skillLevel || 'beginner',
-      coachProfile: profile.coachProfile,
-      coachExpertise: profile.coachExpertise,
-      coachVerificationStatus: profile.coachVerificationStatus || (role === 'coach' ? 'unverified' : undefined),
-      coachVerificationMethod: profile.coachVerificationMethod,
-      coachVerificationDocumentName: profile.coachVerificationDocumentName,
-      coachVerificationId: profile.coachVerificationId,
-      coachVerificationNotes: profile.coachVerificationNotes,
-      coachVerificationSubmittedAt: profile.coachVerificationSubmittedAt,
-      createdAt: new Date(),
-    };
-
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    persist(STORAGE_KEYS.USERS, updatedUsers);
-    setCurrentUser(newUser);
-    localStorage.setItem('currentUser', JSON.stringify(newUser));
-  };
+      setCurrentUser(newUser);
+      localStorage.setItem('currentUser', JSON.stringify(newUser));
+    },
+    []
+  );
 
   const syncSupabaseUser = useCallback(
     (authUser: any, fallbackRole?: string) => {
@@ -452,7 +462,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const metadata = authUser?.user_metadata || {};
       const storedFlow = String(localStorage.getItem(STORAGE_KEYS.OAUTH_FLOW) || '').toLowerCase();
       const storedOauthRole = String(localStorage.getItem(STORAGE_KEYS.OAUTH_ROLE) || '').toLowerCase();
-      const existingUser = users.find((u) => String(u.email || '').trim().toLowerCase() === email) || null;
+      const existingUser = usersRef.current.find((u) => String(u.email || '').trim().toLowerCase() === email) || null;
 
       const normalizeRole = (value: unknown) => {
         const raw = String(value || '').trim().toLowerCase();
@@ -537,7 +547,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
       localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
     },
-    [users]
+    [upsertAndSetCurrentUser]
   );
 
   useEffect(() => {
