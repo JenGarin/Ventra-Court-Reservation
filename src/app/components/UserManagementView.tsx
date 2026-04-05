@@ -98,20 +98,22 @@ export function UserManagementView() {
     }
   };
 
-  const loadVerificationQueue = async () => {
+  const loadVerificationQueue = async (options: { silent?: boolean } = {}) => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'staff') {
       setVerificationQueue([]);
       setVerificationQueueLoaded(true);
       return;
     }
-    setIsVerificationLoading(true);
+    if (!options.silent) setIsVerificationLoading(true);
     try {
       const rows = await getCoachVerificationQueue({ status: verificationFilter });
       setVerificationQueue(rows);
     } catch (error) {
-      toast.error(errorMessage(error, 'Failed to load coach verification queue.'));
+      if (!options.silent) {
+        toast.error(errorMessage(error, 'Failed to load coach verification queue.'));
+      }
     } finally {
-      setIsVerificationLoading(false);
+      if (!options.silent) setIsVerificationLoading(false);
       setVerificationQueueLoaded(true);
     }
   };
@@ -161,6 +163,9 @@ export function UserManagementView() {
       // triggering the loading overlay which causes a layout shift and
       // makes the users table below appear to blink.
       setVerificationQueue((prev) => prev.filter((u) => u.id !== coachId));
+
+      // Soft-refresh to keep sidebar badge / other state in sync without reintroducing flicker.
+      void loadVerificationQueue({ silent: true });
     } catch (error) {
       toast.error(
         errorMessage(
