@@ -9,6 +9,10 @@
     {
       "source": "/api/v1/:path*",
       "destination": "https://igyxynxkvotwqakvwoes.supabase.co/functions/v1/server/api/v1/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
     }
   ]
 }
