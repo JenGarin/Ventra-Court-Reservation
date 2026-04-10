@@ -115,17 +115,6 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
   const [quickSubmitting, setQuickSubmitting] = useState(false);
   const [quickSuccess, setQuickSuccess] = useState(false);
 
-  const timeOptions = useMemo(() => {
-    const step = config.bookingInterval || 30;
-    const options: string[] = [];
-    for (let mins = 0; mins < 24 * 60; mins += step) {
-      const hh = String(Math.floor(mins / 60)).padStart(2, '0');
-      const mm = String(mins % 60).padStart(2, '0');
-      options.push(`${hh}:${mm}`);
-    }
-    return options;
-  }, [config.bookingInterval]);
-
   const hourlyTimeOptions = useMemo(() => {
     const open = selectedCourt ? toMinutes(selectedCourt.operatingHours.start) : 0;
     const close = selectedCourt ? toMinutes(selectedCourt.operatingHours.end) : 24 * 60;
@@ -139,22 +128,35 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
     return options;
   }, [selectedCourt]);
 
-  const quickTimeOptions = useMemo(() => {
+  const quickHourlyTimeOptions = useMemo(() => {
     const court = courts.find((c) => c.id === quickCourtId);
     if (!court) return [];
     const open = toMinutes(court.operatingHours.start);
     const close = toMinutes(court.operatingHours.end);
-    return timeOptions.filter((time) => {
-      const mins = toMinutes(time);
-      return mins >= open && mins < close;
-    });
-  }, [courts, quickCourtId, timeOptions]);
+    const start = Math.ceil(open / 60) * 60;
+    const options: string[] = [];
+
+    for (let mins = start; mins < close; mins += 60) {
+      const time = fromMinutes(mins);
+      if (!quickAvailableSlots || quickAvailableSlots.includes(time)) {
+        options.push(time);
+      }
+    }
+
+    return options;
+  }, [courts, quickAvailableSlots, quickCourtId]);
 
   useEffect(() => {
     if (selectedTime && !hourlyTimeOptions.includes(selectedTime)) {
       setSelectedTime('');
     }
   }, [hourlyTimeOptions, selectedTime]);
+
+  useEffect(() => {
+    if (quickTime && !quickHourlyTimeOptions.includes(quickTime)) {
+      setQuickTime('');
+    }
+  }, [quickHourlyTimeOptions, quickTime]);
 
   const rateForTime = (courtId: string, startTime: string) => {
     const court = courts.find((c) => c.id === courtId);
@@ -779,38 +781,52 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
 
                   <div className="mt-4">
                     <div className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-3">Start Time</div>
-                    {!quickDate ? (
-                      <p className="text-sm text-slate-600 dark:text-slate-400">Select a date first to see available start times.</p>
-                    ) : quickAvailableSlots && quickAvailableSlots.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-                        {quickAvailableSlots.map((time) => {
+                    <div className="space-y-2">
+                      <select
+                        value={quickTime}
+                        onChange={(e) => setQuickTime(e.target.value)}
+                        disabled={!quickDate || quickLoadingSlots || quickHourlyTimeOptions.length === 0}
+                        className="w-full h-14 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-lg text-slate-900 dark:text-slate-100 outline-none focus:border-teal-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <option value="">Select an hourly start time</option>
+                        {quickHourlyTimeOptions.map((time) => (
+                          <option key={time} value={time}>
+                            {format12Time(time)}
+                          </option>
+                        ))}
+                      </select>
+                      {!quickDate ? (
+                        <p className="text-sm text-slate-600 dark:text-slate-400">Select a date first to see available start times.</p>
+                      ) : quickLoadingSlots ? (
+                        <p className="text-sm text-slate-600 dark:text-slate-400">Loading available hourly start times...</p>
+                      ) : quickHourlyTimeOptions.length === 0 ? (
+                        <p className="text-sm text-slate-600 dark:text-slate-400">No hourly start times are available for the selected court and date.</p>
+                      ) : (
+                        <p className="text-sm text-slate-600 dark:text-slate-400">Choose a start time from the dropdown and the booked hours will be highlighted below.</p>
+                      )}
+                    </div>
+                    {!quickLoadingSlots && quickDate && quickHourlyTimeOptions.length > 0 ? (
+                      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+                        {quickHourlyTimeOptions.map((time) => {
                           const isStart = quickTime === time;
                           const isPartOfBooking = quickBookingSlots.has(time);
-                          const canStart = quickAvailableSlots.includes(time);
                           return (
-                            <button
+                            <div
                               key={time}
-                              type="button"
-                              disabled={!canStart}
-                              onClick={() => setQuickTime(quickTime === time ? '' : time)}
-                              className={`h-11 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-50 ${
+                              className={`h-11 rounded-xl border text-sm font-semibold flex items-center justify-center transition-colors ${
                                 isStart
                                   ? 'border-teal-700 bg-teal-600 text-white'
                                   : isPartOfBooking
                                     ? 'border-orange-500 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200'
-                                    : canStart
-                                      ? 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/30 text-slate-400 dark:text-slate-500'
+                                    : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200'
                               }`}
                             >
                               {format12Time(time)}
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
-                    ) : (
-                      <p className="text-sm text-slate-600 dark:text-slate-400">No times are available for the selected court and date.</p>
-                    )}
+                    ) : null}
                     {quickTime && quickAvailableSlots != null ? (
                       quickTimeValid ? (
                         <p className="mt-3 text-sm text-teal-700 dark:text-teal-300">Selected time is available. Orange slots show the full booking duration.</p>

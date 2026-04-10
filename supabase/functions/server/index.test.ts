@@ -438,6 +438,67 @@ Deno.test("auth login requires password", async () => {
   assertEquals(payload.error.code, "VALIDATION_ERROR");
 });
 
+Deno.test("auth login falls back to legacy accounts in supabase mode", async () => {
+  __resetForTests();
+  __resetSupabaseClientsForTests();
+  const prevAuthMode = Deno.env.get("AUTH_MODE");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  Deno.env.set("AUTH_MODE", "supabase");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.set("SUPABASE_ANON_KEY", "anon-key");
+
+  await kv.set("user:legacy-player-1", {
+    id: "legacy-player-1",
+    email: "legacy-player@court.com",
+    name: "Legacy Player",
+    role: "player",
+    status: "active",
+    createdAt: "2099-01-01T00:00:00.000Z",
+  });
+  await kv.set("authcred:legacy-player-1", "legacy-pass");
+
+  __setSupabaseCreateClientFactoryForTests((_url, key) => {
+    if (key === "anon-key") {
+      return {
+        auth: {
+          signInWithPassword: async () => ({
+            data: { user: null, session: null },
+            error: { message: "Invalid login credentials" },
+          }),
+        },
+      };
+    }
+    return {};
+  });
+
+  try {
+    const res = await app.request("http://local.test/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "legacy-player@court.com",
+        password: "legacy-pass",
+        expectedRole: "player",
+      }),
+    });
+    const payload = await json(res);
+    assertEquals(res.status, 200);
+    assertEquals(payload.data.accessToken, "mock-access-legacy-player-1");
+    assertEquals(payload.data.user.id, "legacy-player-1");
+    assertEquals(payload.data.user.email, "legacy-player@court.com");
+  } finally {
+    __resetSupabaseClientsForTests();
+    if (prevAuthMode == null) Deno.env.delete("AUTH_MODE");
+    else Deno.env.set("AUTH_MODE", prevAuthMode);
+    if (prevUrl == null) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
+    else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+  }
+});
+
 Deno.test("auth signup requires password", async () => {
   __resetForTests();
   const res = await app.request("http://local.test/api/v1/auth/signup", {
@@ -460,6 +521,70 @@ Deno.test("auth signup enforces password minimum length", async () => {
   const payload = await json(res);
   assertEquals(res.status, 400);
   assertEquals(payload.error.code, "VALIDATION_ERROR");
+});
+
+Deno.test("auth signup in supabase mode does not block legacy local users", async () => {
+  __resetForTests();
+  __resetSupabaseClientsForTests();
+  const prevAuthMode = Deno.env.get("AUTH_MODE");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  Deno.env.set("AUTH_MODE", "supabase");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.set("SUPABASE_ANON_KEY", "anon-key");
+
+  await kv.set("user:legacy-signup-1", {
+    id: "legacy-signup-1",
+    email: "legacy-signup@court.com",
+    name: "Legacy Signup",
+    role: "player",
+    status: "active",
+    createdAt: "2099-01-01T00:00:00.000Z",
+  });
+
+  __setSupabaseCreateClientFactoryForTests((_url, key) => {
+    if (key === "anon-key") {
+      return {
+        auth: {
+          signUp: async () => ({
+            data: {
+              user: {
+                id: "supabase-user-1",
+              },
+            },
+            error: null,
+          }),
+        },
+      };
+    }
+    return {};
+  });
+
+  try {
+    const res = await app.request("http://local.test/api/v1/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "legacy-signup@court.com",
+        password: "new-password",
+        role: "player",
+        name: "Legacy Signup",
+      }),
+    });
+    const payload = await json(res);
+    assertEquals(res.status, 200);
+    assertEquals(payload.data.id, "supabase-user-1");
+    assertEquals(payload.data.email, "legacy-signup@court.com");
+  } finally {
+    __resetSupabaseClientsForTests();
+    if (prevAuthMode == null) Deno.env.delete("AUTH_MODE");
+    else Deno.env.set("AUTH_MODE", prevAuthMode);
+    if (prevUrl == null) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
+    else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+  }
 });
 
 Deno.test("auth signup honors configured password minimum length", async () => {

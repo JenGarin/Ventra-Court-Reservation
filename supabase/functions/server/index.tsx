@@ -779,6 +779,20 @@ const seedUsers = async (): Promise<ApiUser[]> => {
 };
 
 const authCredentialKey = (userId: string) => `authcred:${userId}`;
+const uuidLikePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const findUserByEmail = async (email: string) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) return null;
+  const users = (await kv.getByPrefix("user:")) as ApiUser[];
+  return users.find((user) => String(user.email || "").trim().toLowerCase() === normalizedEmail) || null;
+};
+
+const isLegacyFallbackAccount = async (user: ApiUser) => {
+  const storedCredential = (await kv.get(authCredentialKey(user.id))) as string | null;
+  if (typeof storedCredential === "string" && storedCredential.trim().length > 0) return true;
+  return !uuidLikePattern.test(String(user.id || "").trim());
+};
 
 const defaultPasswordForRole = (role: Role) => {
   if (role === "admin") return "admin";
@@ -1561,7 +1575,7 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
   if (loginRateErr) return loginRateErr;
   const body = await c.req.json().catch(() => ({}));
   const email = String(body?.email || "").trim().toLowerCase();
-  const password = String(body?.password || "");
+  const password = String(body?.password || "").trim();
   const expectedRoleRaw = String(body?.expectedRole || "").trim().toLowerCase();
   if (!password) {
     return jsonErr(c, 400, "VALIDATION_ERROR", "Password is required.");
@@ -1570,11 +1584,73 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
     return jsonErr(c, 400, "VALIDATION_ERROR", "Invalid expectedRole.");
   }
   const expectedRole = (expectedRoleRaw || "") as Role | "";
+  const tryLegacyLogin = async () => {
+    const legacyUser = await findUserByEmail(email);
+    if (!legacyUser || !(await isLegacyFallbackAccount(legacyUser))) return null;
+
+    const credential = await getUserPasswordCredential(legacyUser);
+    if (!(await verifyPasswordCredential(password, credential))) return null;
+
+    const normalizedStatus = isUserStatus(String((legacyUser as any)?.status || "")) ? (legacyUser as any).status : "active";
+    const hydratedLegacyUser: ApiUser = {
+      ...legacyUser,
+      status: normalizedStatus,
+    };
+
+    if (expectedRole && !roleMatchesExpected(hydratedLegacyUser.role, expectedRole)) {
+      await writeAuditLog({
+        action: "auth_login_failed",
+        entityType: "auth",
+        entityId: hydratedLegacyUser.id,
+        actorId: hydratedLegacyUser.id,
+        actorRole: hydratedLegacyUser.role,
+        metadata: {
+          reason: "role_mismatch",
+          provider: "legacy-mock-fallback",
+          expectedRole,
+          requestId: requestIdFromContext(c),
+        },
+      });
+      return jsonErr(c, 403, "ROLE_MISMATCH", `This account is not a ${expectedRole} account.`);
+    }
+
+    if (hydratedLegacyUser.role === "coach" && hydratedLegacyUser.status === "pending") {
+      await writeAuditLog({
+        action: "auth_login_failed",
+        entityType: "auth",
+        entityId: hydratedLegacyUser.id,
+        actorId: hydratedLegacyUser.id,
+        actorRole: hydratedLegacyUser.role,
+        metadata: { reason: "coach_pending", provider: "legacy-mock-fallback", requestId: requestIdFromContext(c) },
+      });
+      return jsonErr(c, 403, "COACH_PENDING", "Your coach account is awaiting approval.");
+    }
+
+    await writeAuditLog({
+      action: "auth_login_succeeded",
+      entityType: "auth",
+      entityId: hydratedLegacyUser.id,
+      actorId: hydratedLegacyUser.id,
+      actorRole: hydratedLegacyUser.role,
+      metadata: {
+        expectedRole: expectedRole || null,
+        provider: "legacy-mock-fallback",
+        requestId: requestIdFromContext(c),
+      },
+    });
+    return jsonOk(c, {
+      accessToken: `mock-access-${hydratedLegacyUser.id}`,
+      refreshToken: `mock-refresh-${hydratedLegacyUser.id}`,
+      user: hydratedLegacyUser,
+    });
+  };
 
   if (effectiveAuthMode() === "supabase") {
     const supabase = await supabaseAnonClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data?.user || !data?.session) {
+      const legacyLogin = await tryLegacyLogin();
+      if (legacyLogin) return legacyLogin;
       const providerMessage = String(error?.message || "").trim();
       const providerMessageLower = providerMessage.toLowerCase();
       if (providerMessageLower.includes("email not confirmed")) {
@@ -1852,18 +1928,6 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
 
   const role: Role = requestedRole;
   const status: UserStatus = role === "coach" ? "pending" : "active";
-  const users = (await kv.getByPrefix("user:")) as ApiUser[];
-  if (users.some((u) => u.email.toLowerCase() === email)) {
-    await writeAuditLog({
-      action: "auth_signup_failed",
-      entityType: "auth",
-      entityId: email,
-      actorId: "anonymous",
-      actorRole: "player",
-      metadata: { reason: "email_exists", email, requestedRole, requestId: requestIdFromContext(c) },
-    });
-    return jsonErr(c, 409, "CONFLICT", "Email already exists.");
-  }
   const name = String(body?.name || "").trim() || email.split("@")[0] || "User";
   const phone = String(body?.phone || "").trim();
   const coachDraft = role === "coach" ? parseCoachRegistrationDraft(body) : null;
