@@ -173,6 +173,36 @@ export function SignUp() {
           <p className="text-slate-900">Join us to book your next game</p>
         </div>
 
+        <div className="mb-4">
+          <p className="mb-2 text-sm font-semibold text-slate-900">Choose account type</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(['player', 'coach', 'admin'] as const).map((role) => {
+              const active = selectedRole === role;
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => setSelectedRole(role)}
+                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                    active
+                      ? 'border-teal-700 bg-teal-600 text-white shadow-md'
+                      : 'border-slate-300 bg-white/90 text-slate-800 hover:bg-white'
+                  }`}
+                >
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-slate-800">
+            {selectedRole === 'player'
+              ? 'Player accounts can book courts right away.'
+              : selectedRole === 'coach'
+                ? 'Coach accounts need profile and verification details.'
+                : 'Admin accounts require the admin code.'}
+          </p>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-3">
           {isAdminRole && (
             <div>

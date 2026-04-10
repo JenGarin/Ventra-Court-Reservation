@@ -631,9 +631,9 @@ export function LandingPage() {
                 >
                     Quick Booking (No Account)
                 </Link>
-                 <Link 
-                     to="/login" 
-                     className="px-8 py-4 bg-white text-teal-600 rounded-xl font-bold text-lg hover:bg-teal-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
+                <Link 
+                    to="/signup" 
+                    className="px-8 py-4 bg-white text-teal-600 rounded-xl font-bold text-lg hover:bg-teal-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
                  >
                     Create Free Account
                 </Link>
@@ -687,7 +687,7 @@ export function LandingPage() {
             <h4 className="text-white font-bold mb-6 text-lg">Links</h4>
             <ul className="space-y-3 text-sm">
               <li><Link to="/login" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Sign In</Link></li>
-              <li><Link to="/login" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Register</Link></li>
+              <li><Link to="/signup" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Register</Link></li>
               <li><a href="#" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> About Us</a></li>
               <li><Link to="/privacy-policy?returnTo=%2F" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Privacy Policy</Link></li>
               <li><Link to="/terms-of-service?returnTo=%2F" className="hover:text-teal-400 transition-colors flex items-center gap-2"><ChevronRight size={14} /> Terms of Service</Link></li>
