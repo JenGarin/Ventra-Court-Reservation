@@ -785,7 +785,27 @@ const findUserByEmail = async (email: string) => {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!normalizedEmail) return null;
   const users = (await kv.getByPrefix("user:")) as ApiUser[];
-  return users.find((user) => String(user.email || "").trim().toLowerCase() === normalizedEmail) || null;
+  const matches = users.filter((user) => String(user.email || "").trim().toLowerCase() === normalizedEmail);
+  if (matches.length === 0) return null;
+  const scored = await Promise.all(
+    matches.map(async (user) => {
+      const credential = (await kv.get(authCredentialKey(user.id))) as string | null;
+      return {
+        user,
+        score: [
+          typeof credential === "string" && credential.trim().length > 0 ? 1 : 0,
+          uuidLikePattern.test(String(user.id || "").trim()) ? 0 : 1,
+          Number(new Date(String(user.createdAt || 0)).getTime() || 0),
+        ] as const,
+      };
+    }),
+  );
+  scored.sort((a, b) => {
+    if (a.score[0] !== b.score[0]) return b.score[0] - a.score[0];
+    if (a.score[1] !== b.score[1]) return b.score[1] - a.score[1];
+    return b.score[2] - a.score[2];
+  });
+  return scored[0]?.user || null;
 };
 
 const isLegacyFallbackAccount = async (user: ApiUser) => {
@@ -1935,6 +1955,69 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
     const draftError = validateCoachRegistrationDraft(coachDraft!);
     if (draftError) return jsonErr(c, 400, "VALIDATION_ERROR", draftError);
   }
+  const existingUser = await findUserByEmail(email);
+
+  if (existingUser) {
+    const mergedUser: ApiUser = {
+      ...existingUser,
+      name,
+      phone: phone || undefined,
+      role: existingUser.role,
+      status: existingUser.status,
+      coachProfile: role === "coach" ? coachDraft!.coachProfile : existingUser.coachProfile,
+      coachExpertise: role === "coach" ? (coachDraft!.coachExpertise || []) : existingUser.coachExpertise,
+      coachVerificationStatus: role === "coach" ? "pending" : existingUser.coachVerificationStatus,
+      coachVerificationMethod: role === "coach"
+        ? (coachDraft!.verificationMethod as ApiUser["coachVerificationMethod"])
+        : existingUser.coachVerificationMethod,
+      coachVerificationDocumentName: role === "coach"
+        ? coachDraft!.verificationDocumentName
+        : existingUser.coachVerificationDocumentName,
+      coachVerificationId: role === "coach" ? coachDraft!.verificationId : existingUser.coachVerificationId,
+      coachVerificationNotes: role === "coach" ? coachDraft!.verificationNotes : existingUser.coachVerificationNotes,
+      coachVerificationSubmittedAt: role === "coach" ? nowIso() : existingUser.coachVerificationSubmittedAt,
+      createdAt: existingUser.createdAt || nowIso(),
+    };
+
+    await kv.set(`user:${existingUser.id}`, mergedUser);
+    await setUserPassword(existingUser.id, password);
+
+    if (effectiveAuthMode() === "supabase" && hasSupabaseServiceEnv()) {
+      try {
+        const repaired = await createOrRepairConfirmedSupabaseAuthUser({
+          email,
+          password,
+          name,
+          phone,
+          role: mergedUser.role,
+          status: mergedUser.status,
+        });
+        await writeAuditLog({
+          action: "auth_signup_succeeded",
+          entityType: "auth",
+          entityId: existingUser.id,
+          actorId: existingUser.id,
+          actorRole: mergedUser.role,
+          metadata: {
+            provider: repaired.provider,
+            email,
+            roleAssigned: mergedUser.role,
+            requestedRole,
+            requestId: requestIdFromContext(c),
+            reason: "existing_account_updated",
+          },
+        });
+      } catch {
+        // If the Supabase repair fails, keep the local account usable.
+      }
+    }
+
+    return jsonOk(c, {
+      ...mergedUser,
+      emailConfirmationRequired: false,
+      message: "Account updated successfully! Please sign in.",
+    });
+  }
 
   if (effectiveAuthMode() === "supabase") {
     const useServiceRoleSignup = isPrivilegedRole(role) && hasSupabaseServiceEnv();
@@ -2059,6 +2142,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       }
     }
 
+    await setUserPassword(authUserId, password);
     const created: ApiUser = {
       id: authUserId,
       email,
