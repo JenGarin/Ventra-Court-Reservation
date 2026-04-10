@@ -36,6 +36,7 @@ const authMode = (): AuthMode => {
   const raw = String(Deno.env.get("AUTH_MODE") || "").trim().toLowerCase();
   return raw === "supabase" ? "supabase" : "mock";
 };
+const effectiveAuthMode = (): AuthMode => (authMode() === "supabase" && hasSupabaseAuthEnv() ? "supabase" : "mock");
 
 const exposeServerErrors = () => {
   const raw = String(Deno.env.get("DEBUG_API_ERRORS") || "true").trim().toLowerCase();
@@ -1570,15 +1571,7 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
   }
   const expectedRole = (expectedRoleRaw || "") as Role | "";
 
-  if (authMode() === "supabase") {
-    if (!hasSupabaseAuthEnv()) {
-      return jsonErr(
-        c,
-        500,
-        "MISCONFIGURED",
-        "Supabase auth mode requires SUPABASE_URL and SUPABASE_ANON_KEY to be set.",
-      );
-    }
+  if (effectiveAuthMode() === "supabase") {
     const supabase = await supabaseAnonClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data?.user || !data?.session) {
@@ -1879,16 +1872,8 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
     if (draftError) return jsonErr(c, 400, "VALIDATION_ERROR", draftError);
   }
 
-  if (authMode() === "supabase") {
+  if (effectiveAuthMode() === "supabase") {
     const useServiceRoleSignup = isPrivilegedRole(role) && hasSupabaseServiceEnv();
-    if (!hasSupabaseAuthEnv() && !useServiceRoleSignup) {
-      return jsonErr(
-        c,
-        500,
-        "MISCONFIGURED",
-        "Supabase auth mode requires SUPABASE_URL and SUPABASE_ANON_KEY to be set (or SUPABASE_SERVICE_ROLE_KEY for service-role signups).",
-      );
-    }
 
     let authUserId = "";
     let provider = "supabase";
@@ -2151,7 +2136,7 @@ app.post(`${API_BASE}/auth/reset-password`, async (c) => {
     },
   });
 
-  if (authMode() === "supabase" && hasSupabaseAuthEnv()) {
+  if (effectiveAuthMode() === "supabase") {
     try {
       const supabase = await supabaseAnonClient();
       await supabase.auth.resetPasswordForEmail(email);
@@ -2407,16 +2392,7 @@ app.post(`${API_BASE}/auth/change-password`, async (c) => {
     return jsonErr(c, 400, "VALIDATION_ERROR", `newPassword must be at least ${passwordMinLength} characters.`);
   }
 
-  if (authMode() === "supabase") {
-    if (!hasSupabaseAuthEnv() || !hasSupabaseServiceEnv()) {
-      return jsonErr(
-        c,
-        500,
-        "MISCONFIGURED",
-        "Supabase auth mode requires SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY to be set.",
-      );
-    }
-
+  if (effectiveAuthMode() === "supabase") {
     const supabase = await supabaseAnonClient();
     const { error: verifyError } = await supabase.auth.signInWithPassword({
       email: String(result.user.email || "").trim().toLowerCase(),
@@ -6929,7 +6905,8 @@ app.get(`${API_BASE}/health`, async (c) =>
     storage: kv.getStoreInfo(),
     db: await kv.getDbHealth(),
     auth: {
-      mode: authMode(),
+      mode: effectiveAuthMode(),
+      configuredMode: authMode(),
       requireBearer: bearerAuthRequired(),
       supabase: {
         hasAnonEnv: hasSupabaseAuthEnv(),
