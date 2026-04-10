@@ -126,6 +126,19 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
     return options;
   }, [config.bookingInterval]);
 
+  const hourlyTimeOptions = useMemo(() => {
+    const open = selectedCourt ? toMinutes(selectedCourt.operatingHours.start) : 0;
+    const close = selectedCourt ? toMinutes(selectedCourt.operatingHours.end) : 24 * 60;
+    const start = Math.ceil(open / 60) * 60;
+    const options: string[] = [];
+
+    for (let mins = start; mins < close; mins += 60) {
+      options.push(fromMinutes(mins));
+    }
+
+    return options;
+  }, [selectedCourt]);
+
   const quickTimeOptions = useMemo(() => {
     const court = courts.find((c) => c.id === quickCourtId);
     if (!court) return [];
@@ -136,6 +149,12 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
       return mins >= open && mins < close;
     });
   }, [courts, quickCourtId, timeOptions]);
+
+  useEffect(() => {
+    if (selectedTime && !hourlyTimeOptions.includes(selectedTime)) {
+      setSelectedTime('');
+    }
+  }, [hourlyTimeOptions, selectedTime]);
 
   const rateForTime = (courtId: string, startTime: string) => {
     const court = courts.find((c) => c.id === courtId);
@@ -870,21 +889,28 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
                 <label className="block text-base font-semibold text-slate-800 dark:text-slate-200 mb-3">Start Time</label>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <input
-                      type="time"
+                    <select
                       value={selectedTime}
                       onChange={(e) => setSelectedTime(e.target.value)}
-                      step={config.bookingInterval * 60}
-                      disabled={!selectedDate}
-                      className="w-full h-12 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-base text-slate-900 dark:text-slate-100 outline-none focus:border-teal-600"
-                    />
+                      disabled={!selectedDate || hourlyTimeOptions.length === 0}
+                      className="w-full h-12 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-base text-slate-900 dark:text-slate-100 outline-none focus:border-teal-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="">Select an hourly start time</option>
+                      {hourlyTimeOptions.map((time) => (
+                        <option key={time} value={time}>
+                          {format12Time(time)}
+                        </option>
+                      ))}
+                    </select>
                     {!selectedDate ? (
-                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Select a date first to enter a start time.</p>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Select a date first to choose a start time.</p>
+                    ) : hourlyTimeOptions.length === 0 ? (
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No hourly start times are available for this court.</p>
                     ) : null}
                   </div>
                   <div className="space-y-2">
                     <div className="text-sm text-slate-600 dark:text-slate-400">
-                      Enter the preferred start time manually. The field is visible so you can type or choose a time directly.
+                      Choose a whole-hour start time from the dropdown.
                     </div>
                     {selectedTime ? (
                       <p className="text-sm text-slate-600 dark:text-slate-400">
