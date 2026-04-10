@@ -43,7 +43,7 @@ const toMinutes = (time: string) => {
 };
 
 export function DashboardView() {
-  const { bookings, courts, users, config } = useApp();
+  const { bookings, courts, users, config, systemSetup } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const [scheduleTab, setScheduleTab] = React.useState<ScheduleTab>('daily');
@@ -162,6 +162,39 @@ export function DashboardView() {
 
   return (
     <div className="min-h-screen bg-transparent p-6 space-y-8">
+      {systemSetup.setupRequired ? (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-6 py-5 text-amber-950 shadow-sm">
+          <h2 className="text-lg font-bold">System Setup Required</h2>
+          <p className="mt-2 text-sm">
+            {systemSetup.missingTables.length > 0
+              ? `The backend database is not fully initialized yet. Missing tables: ${systemSetup.missingTables.join(', ')}.`
+              : systemSetup.needsCourts
+                ? 'No courts are configured yet. Add at least one active court before opening reservations.'
+                : systemSetup.needsPlans
+                  ? 'No membership plans are configured yet. Add plans before enabling subscriptions.'
+                  : 'Complete the remaining deployment setup before opening the system to users.'}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(systemSetup.missingTables.length > 0 ? '/settings' : '/court-mgmt')}
+              className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+            >
+              {systemSetup.missingTables.length > 0 ? 'Open Settings' : 'Open Court Management'}
+            </button>
+            {systemSetup.needsPlans ? (
+              <button
+                type="button"
+                onClick={() => navigate('/pricing')}
+                className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+              >
+                Review Plans
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Great to have you, Admin</h1>

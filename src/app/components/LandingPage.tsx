@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Calendar, Trophy, Users, CheckCircle, ChevronDown, Twitter, Facebook, Instagram, Linkedin, Mail, Phone, MapPin, Star, ChevronLeft, ChevronRight, PlayCircle, Activity, Plus, Minus, Send, CreditCard, Shield, BarChart3, Award, BookOpen, HelpCircle, Code2, Building2, Briefcase, MessageCircleQuestion } from 'lucide-react';
+import { ArrowRight, Calendar, Trophy, Users, CheckCircle, ChevronDown, Twitter, Facebook, Instagram, Linkedin, Mail, Phone, MapPin, Star, ChevronLeft, ChevronRight, Activity, Plus, Minus, Send, CreditCard, Shield, BarChart3, Award, BookOpen, HelpCircle, Code2, Building2, Briefcase, MessageCircleQuestion } from 'lucide-react';
 
 const TESTIMONIALS = [
   {
@@ -60,17 +60,12 @@ const HERO_IMAGES = [
 ];
 
 export function LandingPage() {
-  const featuresRef = useRef<HTMLDivElement>(null);
   const faqRef = useRef<HTMLDivElement>(null);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [currentHeroImage, setCurrentHeroImage] = useState(0);
   const [isHeroHovered, setIsHeroHovered] = useState(false);
-
-  const scrollToFeatures = () => {
-    featuresRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   const scrollToFAQ = () => {
     faqRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -305,7 +300,6 @@ export function LandingPage() {
                 </div>
               </div>
             </div>
-            <a href="#" className="text-sm font-semibold text-slate-600 hover:text-teal-600 transition-colors">Pricing</a>
           </div>
         </div>
       </nav>
@@ -333,13 +327,6 @@ export function LandingPage() {
                 >
                   Book a Court <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                 </Link>
-                <button
-                  onClick={scrollToFeatures}
-                  className="w-full sm:w-auto px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center justify-center gap-2 group"
-                >
-                  <PlayCircle size={20} className="text-teal-600 group-hover:scale-110 transition-transform" />
-                  How it Works
-                </button>
               </div>
               
               <div className="mt-12 flex flex-wrap justify-center lg:justify-start gap-x-8 gap-y-4 text-slate-500 text-sm font-semibold animate-in fade-in slide-in-from-bottom-8 duration-700 delay-500">
@@ -450,7 +437,7 @@ export function LandingPage() {
       </div>
 
       {/* Features Section */}
-      <div ref={featuresRef} className="py-32 scroll-mt-20">
+      <div className="py-32 scroll-mt-20">
         <RevealOnScroll className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-2xl mx-auto mb-20">
             <div className="inline-block px-3 py-1 rounded-full bg-teal-100 text-teal-700 text-xs font-bold uppercase tracking-wider mb-4">Why Choose Ventra</div>

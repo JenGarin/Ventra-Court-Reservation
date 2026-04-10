@@ -17,6 +17,35 @@ type ApiSession = {
   user: User;
 };
 
+export type BackendHealth = {
+  status: string;
+  storage?: {
+    mode?: "memory" | "supabase" | string;
+    missingEnv?: string[];
+  };
+  db?: {
+    enabled?: boolean;
+    reachable?: boolean;
+    missingTables?: string[];
+    checkedAt?: string;
+    error?: string;
+  };
+  auth?: {
+    mode?: string;
+    requireBearer?: boolean;
+    supabase?: {
+      hasAnonEnv?: boolean;
+      hasServiceEnv?: boolean;
+    };
+  };
+  payments?: {
+    provider?: string;
+  };
+  passwordPolicy?: {
+    minLength?: number;
+  };
+};
+
 const SESSION_KEY = "ventra_api_session";
 const rawUseBackend = String(import.meta.env.VITE_USE_BACKEND_API || "").trim().toLowerCase();
 const USE_BACKEND_API =
@@ -521,6 +550,11 @@ export const backendApi = {
     ensureBackendEnabled();
     const data = await request<any>("/config/facility", { auth: false });
     return mapConfig(data);
+  },
+
+  async getHealth() {
+    ensureBackendEnabled();
+    return await request<BackendHealth>("/health", { auth: false });
   },
 
   async updateConfig(updates: Partial<FacilityConfig>) {

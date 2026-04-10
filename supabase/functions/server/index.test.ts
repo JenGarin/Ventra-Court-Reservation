@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { app } from "./index.tsx";
+import { app, __resetSupabaseClientsForTests, __setSupabaseCreateClientFactoryForTests } from "./index.tsx";
 import * as kv from "./kv_store.tsx";
 
 const { __resetForTests } = kv;
@@ -556,6 +556,85 @@ Deno.test("privileged signup can be enabled via env flag", async () => {
   } finally {
     if (prev == null) Deno.env.delete("AUTH_ALLOW_PRIVILEGED_SIGNUP");
     else Deno.env.set("AUTH_ALLOW_PRIVILEGED_SIGNUP", prev);
+  }
+});
+
+Deno.test("admin signup in supabase mode uses service role provisioning without email confirmation", async () => {
+  __resetForTests();
+  __resetSupabaseClientsForTests();
+  const prevAuthMode = Deno.env.get("AUTH_MODE");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const prevServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const prevAdminCode = Deno.env.get("ADMIN_SIGNUP_CODE");
+
+  Deno.env.set("AUTH_MODE", "supabase");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.set("SUPABASE_ANON_KEY", "anon-key");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+  Deno.env.set("ADMIN_SIGNUP_CODE", "ADMIN1234");
+
+  __setSupabaseCreateClientFactoryForTests((_url, key) => {
+    if (key === "service-role-key") {
+      return {
+        auth: {
+          admin: {
+            createUser: async () => ({
+              data: {
+                user: {
+                  id: "supabase-admin-1",
+                },
+              },
+              error: null,
+            }),
+          },
+        },
+      };
+    }
+    return {
+      auth: {
+        signUp: async () => ({
+          data: {
+            user: {
+              id: "anon-user-should-not-be-used",
+            },
+          },
+          error: null,
+        }),
+      },
+    };
+  });
+
+  try {
+    const signupRes = await app.request("http://local.test/api/v1/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "new-admin@court.com",
+        password: "admin1234",
+        role: "admin",
+        adminCode: "ADMIN1234",
+        name: "New Admin",
+      }),
+    });
+    const signupPayload = await json(signupRes);
+    assertEquals(signupRes.status, 200);
+    assertEquals(signupPayload.data.id, "supabase-admin-1");
+    assertEquals(signupPayload.data.role, "admin");
+    assertEquals(signupPayload.data.emailConfirmationRequired, false);
+    assertEquals(signupPayload.data.message, "Admin account created successfully! Please sign in.");
+  } finally {
+    __resetSupabaseClientsForTests();
+    if (prevAuthMode == null) Deno.env.delete("AUTH_MODE");
+    else Deno.env.set("AUTH_MODE", prevAuthMode);
+    if (prevUrl == null) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
+    else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+    if (prevServiceKey == null) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", prevServiceKey);
+    if (prevAdminCode == null) Deno.env.delete("ADMIN_SIGNUP_CODE");
+    else Deno.env.set("ADMIN_SIGNUP_CODE", prevAdminCode);
   }
 });
 

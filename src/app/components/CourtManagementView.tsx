@@ -28,7 +28,7 @@ function getCourtImage(name: string) {
 }
 
 export function CourtManagementView() {
-  const { courts, addCourt, updateCourt, deleteCourt, bookings, users, currentUser } = useApp();
+  const { courts, addCourt, updateCourt, deleteCourt, bookings, users, currentUser, systemSetup } = useApp();
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -182,6 +182,35 @@ export function CourtManagementView() {
           Add New Court
         </button>
       </div>
+
+      {courts.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">No Courts Configured Yet</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            {systemSetup.missingTables.length > 0
+              ? `The database setup is incomplete. Missing tables: ${systemSetup.missingTables.join(', ')}. Finish the schema setup first.`
+              : 'Create your first active court to enable standard and quick bookings.'}
+          </p>
+          <div className="mt-5 flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="rounded-xl bg-teal-600 px-4 py-2.5 font-semibold text-white hover:bg-teal-700"
+            >
+              Add First Court
+            </button>
+            {currentUser?.role === 'admin' ? (
+              <button
+                type="button"
+                onClick={handleEditSystemRules}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                Open Settings
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
         {courts.map((court) => (

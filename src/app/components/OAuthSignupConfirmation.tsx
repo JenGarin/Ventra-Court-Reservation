@@ -59,12 +59,13 @@ export function OAuthSignupConfirmation() {
     }
 
     setIsSending(true);
+    const redirectTo = getAuthCallbackUrl();
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: targetEmail,
         options: {
           shouldCreateUser: false,
-          emailRedirectTo: `${getAuthCallbackUrl()}?confirmation=email-link`,
+          emailRedirectTo: redirectTo,
         },
       });
 
@@ -74,7 +75,7 @@ export function OAuthSignupConfirmation() {
           status: (error as any)?.status,
           name: (error as any)?.name,
           targetEmail,
-          redirectTo: `${getAuthCallbackUrl()}?confirmation=email-link`,
+          redirectTo,
         });
         toast.error(error.message);
         setIsSending(false);

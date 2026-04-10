@@ -13,6 +13,18 @@ let supabaseCreateClientFactory: ((url: string, key: string) => any) | null = nu
 let cachedAnonClient: any | null = null;
 let cachedServiceClient: any | null = null;
 
+export const __setSupabaseCreateClientFactoryForTests = (factory: ((url: string, key: string) => any) | null) => {
+  supabaseCreateClientFactory = factory;
+  cachedAnonClient = null;
+  cachedServiceClient = null;
+};
+
+export const __resetSupabaseClientsForTests = () => {
+  supabaseCreateClientFactory = null;
+  cachedAnonClient = null;
+  cachedServiceClient = null;
+};
+
 const loadSupabaseCreateClient = async () => {
   if (supabaseCreateClientFactory) return supabaseCreateClientFactory;
   const mod = await import("jsr:@supabase/supabase-js@2.49.8");
@@ -282,6 +294,7 @@ type ApiRateLimitRecord = {
 };
 
 const isRole = (value: string): value is Role => ROLE_VALUES.includes(value as Role);
+const isPrivilegedRole = (value: Role) => value === "admin" || value === "staff";
 const isUserStatus = (value: string): value is UserStatus => USER_STATUS_VALUES.includes(value as UserStatus);
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const allowPrivilegedSignup = () => {
@@ -693,15 +706,7 @@ const deleteByPrefixRecords = async <T extends { id?: string }>(prefix: string, 
 const seedUsers = async (): Promise<ApiUser[]> => {
   const existing = await kv.getByPrefix("user:");
   if (existing.length > 0) return existing as ApiUser[];
-
-  const users: ApiUser[] = [
-    { id: "admin-1", email: "admin@court.com", name: "Admin User", role: "admin", status: "active", createdAt: nowIso() },
-    { id: "staff-1", email: "staff@court.com", name: "Staff Member", role: "staff", status: "active", createdAt: nowIso() },
-    { id: "coach-1", email: "coach@court.com", name: "Coach Mike", role: "coach", status: "active", createdAt: nowIso() },
-    { id: "player-1", email: "player@court.com", name: "Alex Johnson", role: "player", status: "active", createdAt: nowIso() },
-  ];
-  await kv.mset(users.map((u) => `user:${u.id}`), users);
-  return users;
+  return [];
 };
 
 const authCredentialKey = (userId: string) => `authcred:${userId}`;
@@ -831,55 +836,13 @@ const minimumPasswordLength = () => {
 const seedCourts = async (): Promise<ApiCourt[]> => {
   const existing = await kv.getByPrefix("court:");
   if (existing.length > 0) return existing as ApiCourt[];
-
-  const courts: ApiCourt[] = [
-    {
-      id: "c1",
-      name: "Downtown Basketball Court A",
-      courtNumber: "1",
-      type: "indoor",
-      surfaceType: "hardcourt",
-      hourlyRate: 500,
-      peakHourRate: 700,
-      status: "active",
-      operatingHours: { start: "06:00", end: "22:00" },
-    },
-    {
-      id: "c2",
-      name: "Riverside Tennis Court 1",
-      courtNumber: "2",
-      type: "indoor",
-      surfaceType: "synthetic",
-      hourlyRate: 500,
-      peakHourRate: 700,
-      status: "active",
-      operatingHours: { start: "06:00", end: "22:00" },
-    },
-    {
-      id: "c3",
-      name: "Pickle Ball Court 1",
-      courtNumber: "3",
-      type: "outdoor",
-      surfaceType: "hardcourt",
-      hourlyRate: 300,
-      peakHourRate: 450,
-      status: "active",
-      operatingHours: { start: "06:00", end: "18:00" },
-    },
-  ];
-  await kv.mset(courts.map((ct) => `court:${ct.id}`), courts);
-  return courts;
+  return [];
 };
 
 const seedPlans = async () => {
   const existing = await kv.getByPrefix("plan:");
   if (existing.length > 0) return existing;
-  const plans = [
-    { id: "m1", name: "Basic", price: 1000, interval: "month", tier: "basic", features: ["Outdoor court access"] },
-    { id: "m2", name: "Pro", price: 2500, interval: "month", tier: "premium", features: ["All courts access"] },
-  ];
-  await kv.mset(plans.map((p) => `plan:${p.id}`), plans);
-  return plans;
+  return [];
 };
 
 const extractBearerToken = (authorizationHeader: string | undefined) => {
@@ -1830,7 +1793,8 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
   }
 
   if (authMode() === "supabase") {
-    if (!hasSupabaseAuthEnv()) {
+    const useServiceRoleSignup = isPrivilegedRole(role) && hasSupabaseServiceEnv();
+    if (!hasSupabaseAuthEnv() && !useServiceRoleSignup) {
       return jsonErr(
         c,
         500,
@@ -1839,46 +1803,89 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       );
     }
 
-    const supabase = await supabaseAnonClient();
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: authCallbackUrl(),
-        data: {
+    let authUserId = "";
+    let provider = "supabase";
+    if (useServiceRoleSignup) {
+      const admin = await supabaseServiceClient();
+      const { data, error } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
           name,
           phone,
           role,
           status,
         },
-      },
-    });
-    if (error || !data?.user?.id) {
-      await writeAuditLog({
-        action: "auth_signup_failed",
-        entityType: "auth",
-        entityId: email,
-        actorId: "anonymous",
-        actorRole: "player",
-        metadata: {
-          reason: "provider_error",
-          provider: "supabase",
-          email,
-          role,
-          message: error?.message || "signup_failed",
-          requestId: requestIdFromContext(c),
+      });
+      if (error || !data?.user?.id) {
+        await writeAuditLog({
+          action: "auth_signup_failed",
+          entityType: "auth",
+          entityId: email,
+          actorId: "anonymous",
+          actorRole: "player",
+          metadata: {
+            reason: "provider_error",
+            provider: "supabase-admin",
+            email,
+            role,
+            message: error?.message || "signup_failed",
+            requestId: requestIdFromContext(c),
+          },
+        });
+        const message = error?.message || "Signup failed.";
+        const isConflict =
+          message.toLowerCase().includes("already registered") ||
+          message.toLowerCase().includes("already exists") ||
+          message.toLowerCase().includes("exists");
+        return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+      }
+      authUserId = String(data.user.id);
+      provider = "supabase-admin";
+    } else {
+      const supabase = await supabaseAnonClient();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: authCallbackUrl(),
+          data: {
+            name,
+            phone,
+            role,
+            status,
+          },
         },
       });
-      const message = error?.message || "Signup failed.";
-      const isConflict =
-        message.toLowerCase().includes("already registered") ||
-        message.toLowerCase().includes("already exists") ||
-        message.toLowerCase().includes("exists");
-      return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+      if (error || !data?.user?.id) {
+        await writeAuditLog({
+          action: "auth_signup_failed",
+          entityType: "auth",
+          entityId: email,
+          actorId: "anonymous",
+          actorRole: "player",
+          metadata: {
+            reason: "provider_error",
+            provider: "supabase",
+            email,
+            role,
+            message: error?.message || "signup_failed",
+            requestId: requestIdFromContext(c),
+          },
+        });
+        const message = error?.message || "Signup failed.";
+        const isConflict =
+          message.toLowerCase().includes("already registered") ||
+          message.toLowerCase().includes("already exists") ||
+          message.toLowerCase().includes("exists");
+        return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+      }
+      authUserId = String(data.user.id);
     }
 
     const created: ApiUser = {
-      id: String(data.user.id),
+      id: authUserId,
       email,
       name,
       role,
@@ -1910,7 +1917,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       entityId: created.id,
       actorId: created.id,
       actorRole: created.role,
-      metadata: { provider: "supabase", email, roleAssigned: role, requestedRole, requestId: requestIdFromContext(c) },
+      metadata: { provider, email, roleAssigned: role, requestedRole, requestId: requestIdFromContext(c) },
     });
     if (role === "coach") {
       return jsonOk(c, {
@@ -1919,6 +1926,15 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
         message: "Coach account created. Check your email to confirm your address. After confirming, an administrator still needs to approve your coach account before you can sign in.",
       });
     }
+
+    if (useServiceRoleSignup) {
+      return jsonOk(c, {
+        ...created,
+        emailConfirmationRequired: false,
+        message: role === "admin" ? "Admin account created successfully! Please sign in." : "Account created successfully! Please sign in.",
+      });
+    }
+
     return jsonOk(c, {
       ...created,
       emailConfirmationRequired: true,
@@ -6740,9 +6756,6 @@ app.post(`${API_BASE}/admin/data/reset`, async (c) => {
   };
   await kv.del("facility:config");
 
-  await seedUsers();
-  await seedCourts();
-  await seedPlans();
   await kv.set("facility:config", { ...DEFAULT_FACILITY_CONFIG });
 
   await writeAuditLog({
