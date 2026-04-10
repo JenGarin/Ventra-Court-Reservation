@@ -17,3 +17,4 @@ export const getAuthRedirectOrigin = () => {
 };
 
 export const getAuthCallbackUrl = () => `${getAuthRedirectOrigin()}/auth/callback`;
+export const getEmailLinkCallbackUrl = () => `${getAuthCallbackUrl()}?confirmation=email-link`;

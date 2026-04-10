@@ -21,6 +21,8 @@ Copy [`.env.example`](./.env.example) to `.env` and configure:
 - `VITE_ENABLE_SUPABASE_AUTH=true` if you want Google/Facebook OAuth
 - `VITE_SITE_URL=https://<your-public-site>` for auth callback links
 
+If you deploy the frontend on Vercel and want to keep `VITE_API_BASE_URL=/api/v1`, make sure `vercel.json` rewrites `/api/v1/*` to the Supabase function URL. This repo includes that rewrite for the current project.
+
 ## Backend Environment
 
 Copy [`supabase/functions/server/.env.example`](./supabase/functions/server/.env.example) to `supabase/functions/server/.env` and configure:

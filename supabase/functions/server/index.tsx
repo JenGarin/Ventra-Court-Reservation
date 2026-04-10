@@ -86,6 +86,74 @@ const supabaseServiceClient = async () => {
   return cachedServiceClient;
 };
 
+const findSupabaseAuthUserByEmail = async (email: string) => {
+  if (!hasSupabaseServiceEnv()) return null;
+  const admin = await supabaseServiceClient();
+  let page = 1;
+  const perPage = 200;
+
+  while (page <= 10) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const match = (data?.users || []).find((user: any) => String(user?.email || "").trim().toLowerCase() === email);
+    if (match) return match;
+    if (!data?.nextPage) break;
+    page = data.nextPage;
+  }
+
+  return null;
+};
+
+const createOrRepairConfirmedSupabaseAuthUser = async (payload: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  role: Role;
+  status: UserStatus;
+}) => {
+  const admin = await supabaseServiceClient();
+  const existing = await findSupabaseAuthUserByEmail(payload.email);
+  const userMetadata = {
+    name: payload.name,
+    phone: payload.phone || "",
+    role: payload.role,
+    status: payload.status,
+  };
+
+  if (existing?.id) {
+    const { data, error } = await admin.auth.admin.updateUserById(String(existing.id), {
+      password: payload.password,
+      email_confirm: true,
+      user_metadata: {
+        ...(existing.user_metadata || {}),
+        ...userMetadata,
+      },
+    });
+    if (error || !data?.user?.id) {
+      throw new Error(error?.message || "Signup failed.");
+    }
+    return {
+      authUserId: String(data.user.id),
+      provider: "supabase-admin-repair",
+    };
+  }
+
+  const { data, error } = await admin.auth.admin.createUser({
+    email: payload.email,
+    password: payload.password,
+    email_confirm: true,
+    user_metadata: userMetadata,
+  });
+  if (error || !data?.user?.id) {
+    throw new Error(error?.message || "Signup failed.");
+  }
+  return {
+    authUserId: String(data.user.id),
+    provider: "supabase-admin-fallback",
+  };
+};
+
 type ApiUser = {
   id: string;
   email: string;
@@ -1514,6 +1582,25 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
     const supabase = await supabaseAnonClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data?.user || !data?.session) {
+      const providerMessage = String(error?.message || "").trim();
+      const providerMessageLower = providerMessage.toLowerCase();
+      if (providerMessageLower.includes("email not confirmed")) {
+        await writeAuditLog({
+          action: "auth_login_failed",
+          entityType: "auth",
+          entityId: email || "unknown",
+          actorId: "anonymous",
+          actorRole: "player",
+          metadata: {
+            reason: "email_not_confirmed",
+            provider: "supabase",
+            email,
+            message: providerMessage || "email_not_confirmed",
+            requestId: requestIdFromContext(c),
+          },
+        });
+        return jsonErr(c, 403, "EMAIL_NOT_CONFIRMED", "Please confirm your email before signing in.");
+      }
       await writeAuditLog({
         action: "auth_login_failed",
         entityType: "auth",
@@ -1524,7 +1611,7 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
           reason: "invalid_credentials",
           provider: "supabase",
           email,
-          message: error?.message || "invalid_credentials",
+          message: providerMessage || "invalid_credentials",
           requestId: requestIdFromContext(c),
         },
       });
@@ -1805,6 +1892,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
 
     let authUserId = "";
     let provider = "supabase";
+    let emailConfirmationRequired = !useServiceRoleSignup;
     if (useServiceRoleSignup) {
       const admin = await supabaseServiceClient();
       const { data, error } = await admin.auth.admin.createUser({
@@ -1843,6 +1931,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       }
       authUserId = String(data.user.id);
       provider = "supabase-admin";
+      emailConfirmationRequired = false;
     } else {
       const supabase = await supabaseAnonClient();
       const { data, error } = await supabase.auth.signUp({
@@ -1859,29 +1948,66 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
         },
       });
       if (error || !data?.user?.id) {
-        await writeAuditLog({
-          action: "auth_signup_failed",
-          entityType: "auth",
-          entityId: email,
-          actorId: "anonymous",
-          actorRole: "player",
-          metadata: {
-            reason: "provider_error",
-            provider: "supabase",
-            email,
-            role,
-            message: error?.message || "signup_failed",
-            requestId: requestIdFromContext(c),
-          },
-        });
         const message = error?.message || "Signup failed.";
-        const isConflict =
-          message.toLowerCase().includes("already registered") ||
-          message.toLowerCase().includes("already exists") ||
-          message.toLowerCase().includes("exists");
-        return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+        const lowerMessage = message.toLowerCase();
+        const emailDeliveryFailed = lowerMessage.includes("error sending confirmation email");
+        if (emailDeliveryFailed && hasSupabaseServiceEnv()) {
+          try {
+            const fallback = await createOrRepairConfirmedSupabaseAuthUser({
+              email,
+              password,
+              name,
+              phone,
+              role,
+              status,
+            });
+            authUserId = fallback.authUserId;
+            provider = fallback.provider;
+            emailConfirmationRequired = false;
+          } catch (fallbackError: any) {
+            await writeAuditLog({
+              action: "auth_signup_failed",
+              entityType: "auth",
+              entityId: email,
+              actorId: "anonymous",
+              actorRole: "player",
+              metadata: {
+                reason: "provider_error",
+                provider: "supabase-admin-fallback",
+                email,
+                role,
+                message: fallbackError?.message || message,
+                requestId: requestIdFromContext(c),
+              },
+            });
+            return jsonErr(c, 400, "VALIDATION_ERROR", fallbackError?.message || message);
+          }
+        } else {
+          await writeAuditLog({
+            action: "auth_signup_failed",
+            entityType: "auth",
+            entityId: email,
+            actorId: "anonymous",
+            actorRole: "player",
+            metadata: {
+              reason: "provider_error",
+              provider: "supabase",
+              email,
+              role,
+              message,
+              requestId: requestIdFromContext(c),
+            },
+          });
+          const isConflict =
+            lowerMessage.includes("already registered") ||
+            lowerMessage.includes("already exists") ||
+            lowerMessage.includes("exists");
+          return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
+        }
+      } else {
+        authUserId = String(data.user.id);
+        emailConfirmationRequired = true;
       }
-      authUserId = String(data.user.id);
     }
 
     const created: ApiUser = {
@@ -1923,11 +2049,13 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       return jsonOk(c, {
         pending: true,
         role: "coach",
-        message: "Coach account created. Check your email to confirm your address. After confirming, an administrator still needs to approve your coach account before you can sign in.",
+        message: emailConfirmationRequired
+          ? "Coach account created. Check your email to confirm your address. After confirming, an administrator still needs to approve your coach account before you can sign in."
+          : "Coach account created successfully. An administrator still needs to approve your coach account before you can sign in.",
       });
     }
 
-    if (useServiceRoleSignup) {
+    if (!emailConfirmationRequired) {
       return jsonOk(c, {
         ...created,
         emailConfirmationRequired: false,

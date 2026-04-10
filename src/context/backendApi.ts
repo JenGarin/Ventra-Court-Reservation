@@ -53,6 +53,8 @@ const USE_BACKEND_API =
   rawUseBackend === "1" ||
   rawUseBackend === "yes" ||
   (rawUseBackend === "" && Boolean(import.meta.env.PROD));
+const configuredSupabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "");
+const remoteApiBase = configuredSupabaseUrl ? `${configuredSupabaseUrl}/functions/v1/server/api/v1` : "";
 
 const resolveApiBase = () => {
   const configured = String(import.meta.env.VITE_API_BASE_URL || "").trim();
@@ -63,10 +65,7 @@ const resolveApiBase = () => {
 
   // Prod default: talk directly to the deployed Supabase edge function to avoid
   // needing host-level proxy/redirect rules.
-  const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "");
-  if (supabaseUrl) {
-    return `${supabaseUrl}/functions/v1/server/api/v1`;
-  }
+  if (remoteApiBase) return remoteApiBase;
 
   return "/api/v1";
 };
@@ -202,13 +201,11 @@ const writeSession = (session: ApiSession | null) => {
   );
 };
 
-const looksLikeNetworkFailure = (message: string) =>
-  /failed to fetch|networkerror|load failed|request failed/i.test(message);
-
 const fetchEnvelope = async <T>(
   baseUrl: string,
   path: string,
   options: { method?: string; body?: unknown; auth?: boolean } = {},
+  allowRemoteFallback = true,
 ): Promise<ApiEnvelope<T>> => {
   const session = readSession();
   const headers: Record<string, string> = {
@@ -220,17 +217,27 @@ const fetchEnvelope = async <T>(
     headers["x-user-role"] = session.user.role;
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: options.method || "GET",
-    headers,
-    body: options.body == null ? undefined : JSON.stringify(options.body),
-  });
-  const payload = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
-  if (!response.ok || !payload?.success) {
-    const message = payload?.error?.message || `${response.status} ${response.statusText}`.trim() || "Request failed.";
-    throw new Error(message);
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body == null ? undefined : JSON.stringify(options.body),
+    });
+    const payload = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
+    if (!response.ok || !payload?.success) {
+      if (allowRemoteFallback && remoteApiBase && baseUrl !== remoteApiBase && response.status === 404) {
+        return await fetchEnvelope<T>(remoteApiBase, path, options, false);
+      }
+      const message = payload?.error?.message || `${response.status} ${response.statusText}`.trim() || "Request failed.";
+      throw new Error(message);
+    }
+    return payload;
+  } catch (error: any) {
+    if (allowRemoteFallback && remoteApiBase && baseUrl !== remoteApiBase) {
+      return await fetchEnvelope<T>(remoteApiBase, path, options, false);
+    }
+    throw error;
   }
-  return payload;
 };
 
 const requestEnvelope = async <T>(
@@ -295,20 +302,7 @@ export const backendApi = {
       auth: false,
       body: { email, password, role, ...payload },
     } as const;
-    let data: any;
-    try {
-      data = await request<any>("/auth/signup", requestOptions);
-    } catch (error: any) {
-      const message = String(error?.message || "").trim();
-      const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "");
-      if (!looksLikeNetworkFailure(message) || !supabaseUrl) {
-        throw error;
-      }
-
-      const remoteApiBase = `${supabaseUrl}/functions/v1/server/api/v1`;
-      const payload = await fetchEnvelope<any>(remoteApiBase, "/auth/signup", requestOptions);
-      data = payload.data;
-    }
+    const data = await request<any>("/auth/signup", requestOptions);
     if (data?.pending === true) {
       return {
         pending: true,

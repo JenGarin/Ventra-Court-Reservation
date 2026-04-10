@@ -4,7 +4,7 @@ import { Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/context/supabase';
-import { getAuthCallbackUrl } from '@/utils/authRedirect';
+import { getEmailLinkCallbackUrl } from '@/utils/authRedirect';
 
 const PENDING_KEY = 'ventra_oauth_confirmation_pending';
 const EMAIL_LINK_PENDING_KEY = 'ventra_oauth_email_link_pending';
@@ -59,7 +59,7 @@ export function OAuthSignupConfirmation() {
     }
 
     setIsSending(true);
-    const redirectTo = getAuthCallbackUrl();
+    const redirectTo = getEmailLinkCallbackUrl();
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: targetEmail,

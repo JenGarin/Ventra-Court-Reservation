@@ -14,7 +14,7 @@ import { addDays, format, isSameDay, parseISO } from 'date-fns';
 import { supabase } from './supabase';
 import { backendApi, type BackendHealth } from './backendApi';
 import { PASSWORD_MIN_LENGTH } from '@/config/authPolicy';
-import { getAuthCallbackUrl } from '@/utils/authRedirect';
+import { getAuthCallbackUrl, getEmailLinkCallbackUrl } from '@/utils/authRedirect';
 
 export interface UserSubscription {
   id: string;
@@ -816,11 +816,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         verificationNotes: payload.verificationNotes,
         adminCode: payload.adminCode,
       });
+
+      const normalizedEmail = normalizeEmail(email);
+      if (oauthEnabled && result?.emailConfirmationRequired) {
+        const { error } = await supabase.auth.signInWithOtp({
+          email: normalizedEmail,
+          options: {
+            shouldCreateUser: false,
+            emailRedirectTo: getEmailLinkCallbackUrl(),
+          },
+        });
+
+        if (error) {
+          return {
+            success: true,
+            message:
+              error.message ||
+              (requestedCoach
+                ? 'Coach account created, but we could not send the email link. Please contact the administrator.'
+                : 'Account created, but we could not send the email link. Please try signing in again later.'),
+          };
+        }
+
+        localStorage.setItem(STORAGE_KEYS.OAUTH_EMAIL_LINK_PENDING, normalizedEmail);
+      }
+
       return {
         success: true,
         message: requestedCoach
-          ? result?.message || 'Coach registration submitted. Wait for admin approval before signing in.'
-          : result?.message || 'Account created. Check your email to confirm your address before signing in.',
+          ? result?.emailConfirmationRequired
+            ? 'Coach account created. We sent an email link to confirm your address. After confirming, an administrator still needs to approve your coach account before you can sign in.'
+            : result?.message || 'Coach registration submitted. Wait for admin approval before signing in.'
+          : result?.emailConfirmationRequired
+            ? 'Account created. We sent an email link to your inbox so you can confirm your address and finish signing in.'
+            : result?.message || 'Account created. Check your email to confirm your address before signing in.',
       };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Signup failed.' };
