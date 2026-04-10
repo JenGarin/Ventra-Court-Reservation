@@ -232,7 +232,7 @@ export function BookingPayment() {
                 <div key={`${draft.courtId}-${draft.date}-${draft.startTime}-${index}`} className="rounded-lg bg-white/60 dark:bg-slate-700/50 p-2">
                   <p className="font-medium">{courtName}</p>
                   <p>{format(new Date(draft.date), 'MMMM d, yyyy')} | {draft.startTime} - {draft.endTime}</p>
-                  <p>{(draft.duration / 60).toFixed(1).replace(/\.0$/, '')} hour(s) | PHP {draft.amount.toFixed(2)}</p>
+                  <p>{(draft.duration / 60).toFixed(1).replace(/\.0$/, '')} hour(s) | ₱{draft.amount.toFixed(2)}</p>
                 </div>
               );
             })}
@@ -240,7 +240,7 @@ export function BookingPayment() {
           <div className="h-px bg-slate-400/40 dark:bg-slate-600/40 my-2" />
           <div className="flex items-center justify-between text-lg md:text-xl text-slate-900 dark:text-slate-100">
             <span className="font-semibold">Amount to Pay:</span>
-            <span className="font-semibold">PHP {totalAmount.toFixed(2)}</span>
+            <span className="font-semibold">₱{totalAmount.toFixed(2)}</span>
           </div>
         </div>
 
@@ -332,7 +332,7 @@ export function BookingPayment() {
             disabled={submitting}
             className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
           >
-            {submitting ? 'Processing...' : `Pay PHP ${totalAmount.toFixed(2)}`}
+            {submitting ? 'Processing...' : `Pay ₱${totalAmount.toFixed(2)}`}
           </button>
         </div>
 

@@ -41,18 +41,23 @@ export function AdminPanel() {
   const totalPages = Math.ceil(filteredCourts.length / itemsPerPage);
   const paginatedCourts = filteredCourts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const handleCourtSubmit = () => {
+  const handleCourtSubmit = async () => {
     if (!courtForm.name || !courtForm.courtNumber) {
       toast.error('Please fill in all required fields');
       return;
     }
 
-    if (editingCourt) {
-      updateCourt(editingCourt.id, courtForm);
-      toast.success('Court updated successfully');
-    } else {
-      addCourt(courtForm as Omit<Court, 'id'>);
-      toast.success('Court added successfully');
+    try {
+      if (editingCourt) {
+        await updateCourt(editingCourt.id, courtForm);
+        toast.success('Court updated successfully');
+      } else {
+        await addCourt(courtForm as Omit<Court, 'id'>);
+        toast.success('Court added successfully');
+      }
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to save court');
+      return;
     }
 
     setShowCourtForm(false);

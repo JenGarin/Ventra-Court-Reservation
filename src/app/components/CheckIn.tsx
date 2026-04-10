@@ -412,7 +412,7 @@ export function CheckIn() {
                   <div className="space-y-3 text-base md:text-lg">
                     <div className="flex items-center justify-between">
                       <span>Rate:</span>
-                      <span className="font-semibold">PHP {ratePerHour.toFixed(0)} / hour</span>
+                      <span className="font-semibold">₱{ratePerHour.toFixed(0)} / hour</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Duration:</span>
@@ -420,18 +420,18 @@ export function CheckIn() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Subtotal:</span>
-                      <span className="font-semibold">PHP {scannedBooking.amount.toFixed(0)}</span>
+                      <span className="font-semibold">₱{scannedBooking.amount.toFixed(0)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Reservation Fee:</span>
-                      <span className="font-semibold">PHP {reservationFee.toFixed(0)}</span>
+                      <span className="font-semibold">₱{reservationFee.toFixed(0)}</span>
                     </div>
                   </div>
 
                   <div className="mt-5 bg-[#9ccfcb] rounded-2xl p-4 text-base md:text-lg">
                     <div className="flex items-center justify-between">
                       <span>Total:</span>
-                      <span className="font-bold">PHP {totalWithFee.toFixed(0)}</span>
+                      <span className="font-bold">₱{totalWithFee.toFixed(0)}</span>
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span>Payment Status:</span>
@@ -472,7 +472,7 @@ export function CheckIn() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Price</span>
-                      <span className="font-semibold">PHP {ratePerHour.toFixed(0)}/hour</span>
+                      <span className="font-semibold">₱{ratePerHour.toFixed(0)}/hour</span>
                     </div>
                   </div>
                 </section>

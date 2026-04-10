@@ -293,7 +293,7 @@ export function CoachPortalView() {
             <h3 className="text-lg md:text-xl font-semibold text-slate-900 dark:text-slate-100">Total Earnings</h3>
             <PhilippinePeso className="w-5 h-5 md:w-6 md:h-6 text-slate-700 dark:text-slate-300" />
           </div>
-          <p className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-slate-100 mt-6">PHP {totalEarnings.toFixed(0)}</p>
+          <p className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-slate-100 mt-6">₱{totalEarnings.toFixed(0)}</p>
           <p className="text-slate-700 dark:text-slate-300 text-sm md:text-base">From all sessions</p>
         </article>
 
@@ -465,7 +465,7 @@ export function CoachPortalView() {
                   </p>
 
                   <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <div className="text-xl md:text-2xl font-semibold text-emerald-700">PHP {session.amount.toFixed(0)}</div>
+                    <div className="text-xl md:text-2xl font-semibold text-emerald-700">₱{session.amount.toFixed(0)}</div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => navigate('/coach-sessions')}
@@ -529,7 +529,7 @@ export function CoachPortalView() {
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base md:text-lg text-slate-800 dark:text-slate-300">Total Paid:</span>
-                  <span className="text-base md:text-lg font-semibold text-slate-900 dark:text-slate-100">PHP {student.totalPaid.toFixed(0)}</span>
+                  <span className="text-base md:text-lg font-semibold text-slate-900 dark:text-slate-100">₱{student.totalPaid.toFixed(0)}</span>
                 </div>
               </div>
 

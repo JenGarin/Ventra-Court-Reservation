@@ -78,7 +78,7 @@ interface AppContextType {
     role?: string,
     flow?: 'signin' | 'signup'
   ) => Promise<{ success: boolean; message?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   addCourt: (court: Omit<Court, 'id'>) => Promise<void>;
   updateCourt: (id: string, court: Partial<Court>) => Promise<void>;
   deleteCourt: (id: string) => Promise<void>;
@@ -209,7 +209,8 @@ const defaultConfig: FacilityConfig = {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const usingBackendApi = backendApi.isEnabled;
-  const usingSupabaseAuth = !usingBackendApi && USE_SUPABASE_AUTH;
+  const oauthEnabled = USE_SUPABASE_AUTH;
+  const usingSupabaseAuth = !usingBackendApi && oauthEnabled;
   const [bootstrapped, setBootstrapped] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
@@ -455,7 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const syncSupabaseUser = useCallback(
-    (authUser: any, fallbackRole?: string) => {
+    async (authUser: any, fallbackRole?: string) => {
       const email = String(authUser?.email || '').trim().toLowerCase();
       if (!email) return;
 
@@ -483,11 +484,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const existingRole = normalizeRole(existingUser?.role);
       const existingStatus = normalizeStatus(existingUser?.status);
       const expectedPortalRole = storedOauthRole === 'admin' || storedOauthRole === 'coach' || storedOauthRole === 'player' ? storedOauthRole : '';
+      const actualKnownRole = metadataRole || existingRole;
 
       // Enforce that the OAuth portal role must match the actual account role.
       if (storedFlow === 'signin' && expectedPortalRole) {
-        const actualForCheck = metadataRole || existingRole;
-        if (!actualForCheck) {
+        if (!actualKnownRole) {
           localStorage.setItem(
             'ventra_oauth_error',
             `No account is registered for this portal yet. Please create an account first.`,
@@ -499,7 +500,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('currentUser');
           return;
         }
-        if (!roleMatchesExpected(actualForCheck, expectedPortalRole)) {
+        if (!roleMatchesExpected(actualKnownRole, expectedPortalRole)) {
           localStorage.setItem(
             'ventra_oauth_error',
             `This account is not ${expectedPortalRole === 'admin' ? 'an' : 'a'} ${expectedPortalRole} account.`,
@@ -513,13 +514,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Prevent role escalation or cross-portal account creation during OAuth signup.
+      // If this identity already belongs to a different role, stop and show a clear error
+      // instead of silently reusing the old privileged role.
+      if (storedFlow === 'signup' && expectedPortalRole) {
+        if (actualKnownRole && !roleMatchesExpected(actualKnownRole, expectedPortalRole)) {
+          localStorage.setItem(
+            'ventra_oauth_error',
+            `This email is already registered as ${actualKnownRole}. Please sign in using the correct portal.`,
+          );
+          localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
+          localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
+          void supabase.auth.signOut();
+          setCurrentUser(null);
+          localStorage.removeItem('currentUser');
+          return;
+        }
+      }
+
       // Pick a role without allowing "portal role" escalation.
       // For OAuth signup we only allow Player role assignment from the chosen portal.
       const resolvedRole =
+        (storedFlow === 'signup' ? expectedPortalRole : '') ||
         metadataRole ||
         fallback ||
         existingRole ||
-        (storedFlow === 'signup' && expectedPortalRole === 'player' ? 'player' : '') ||
         'player';
 
       const resolvedStatus = (metadataStatus || existingStatus || (resolvedRole === 'coach' ? 'pending' : 'active')) as User['status'];
@@ -541,13 +560,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         role: resolvedRole as User['role'],
         status: resolvedStatus,
       });
+      const syncedUser = usersRef.current.find((u) => String(u.email || '').trim().toLowerCase() === email) || null;
+      if (usingBackendApi && syncedUser) {
+        const accessToken = String(authUser?.session?.access_token || authUser?.access_token || '').trim();
+        if (accessToken) {
+          backendApi.setSession({
+            accessToken,
+            refreshToken: String(authUser?.session?.refresh_token || authUser?.refresh_token || '').trim() || undefined,
+            user: syncedUser,
+          });
+          await hydrateBackendData(syncedUser);
+        }
+      }
       if (localStorage.getItem(STORAGE_KEYS.OAUTH_FLOW) === 'signup') {
         localStorage.setItem(STORAGE_KEYS.OAUTH_CONFIRMATION_PENDING, email);
       }
       localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
       localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
     },
-    [upsertAndSetCurrentUser]
+    [hydrateBackendData, upsertAndSetCurrentUser, usingBackendApi]
   );
 
   useEffect(() => {
@@ -650,7 +681,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser, hydrateBackendData, usingBackendApi]);
 
   useEffect(() => {
-    if (!usingSupabaseAuth) return;
+    if (!oauthEnabled) return;
     const bootstrapOauthSession = async () => {
       const { data } = await supabase.auth.getSession();
       if (!data.session?.user) return;
@@ -660,13 +691,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('currentUser');
         return;
       }
-      syncSupabaseUser(data.session.user);
+      await syncSupabaseUser({
+        ...data.session.user,
+        session: data.session,
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
     };
 
-    bootstrapOauthSession();
+    void bootstrapOauthSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
+        backendApi.clearSession();
+        setBackendUnreadNotificationCount(null);
         setCurrentUser(null);
         localStorage.removeItem('currentUser');
         return;
@@ -678,13 +716,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('currentUser');
         return;
       }
-      syncSupabaseUser(session.user);
+      void syncSupabaseUser({
+        ...session.user,
+        session,
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
     });
 
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [syncSupabaseUser, usingSupabaseAuth]);
+  }, [oauthEnabled, syncSupabaseUser]);
 
   useEffect(() => {
     if (currentUser) {
@@ -1014,7 +1057,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           success: true,
           message: requestedCoach
             ? result?.message || 'Coach registration submitted. Wait for admin approval before signing in.'
-            : 'Account created successfully! Please sign in.',
+            : result?.message || 'Account created. Check your email to confirm your address before signing in.',
         };
       } catch (error: any) {
         return { success: false, message: error?.message || 'Signup failed.' };
@@ -1037,6 +1080,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!adminCode || adminCode !== expectedAdminCode) {
             return { success: false, message: 'Invalid admin code.' };
           }
+          await backendApi.signupViaServer(email, password, 'admin', {
+            name: payload.name,
+            phone: payload.phone,
+            adminCode,
+          });
+          return {
+            success: true,
+            message: 'Admin account created successfully! Please sign in.',
+          };
         }
         if (requestedCoach) {
           // handled above
@@ -1193,14 +1245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     role: string = 'player',
     flow: 'signin' | 'signup' = 'signin'
   ): Promise<{ success: boolean; message?: string }> => {
-    if (usingBackendApi) {
-      void provider;
-      void role;
-      void flow;
-      return { success: false, message: 'Google/Facebook backend OAuth is disabled.' };
-    }
-
-    if (!usingSupabaseAuth) {
+    if (!oauthEnabled) {
       return { success: false, message: 'Supabase auth is not enabled.' };
     }
 
@@ -1234,18 +1279,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
-    if (usingBackendApi) {
-      backendApi.logout().catch((error) => console.error('Backend logout failed:', error));
-    }
+  const logout = async () => {
+    backendApi.clearSession();
     setBackendUnreadNotificationCount(null);
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
+    localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
     localStorage.removeItem(STORAGE_KEYS.OAUTH_CONFIRMATION_PENDING);
     localStorage.removeItem(STORAGE_KEYS.OAUTH_EMAIL_LINK_PENDING);
-    if (usingSupabaseAuth) {
-      supabase.auth.signOut();
+    localStorage.removeItem(STORAGE_KEYS.ACCOUNT_CREATED_NOTICE);
+
+    const tasks: Promise<unknown>[] = [];
+    if (usingBackendApi) {
+      tasks.push(backendApi.logout().catch((error) => console.error('Backend logout failed:', error)));
+    }
+    if (oauthEnabled) {
+      tasks.push(supabase.auth.signOut({ scope: 'local' as any }).catch((error) => console.error('Supabase logout failed:', error)));
+    }
+    if (tasks.length) {
+      await Promise.allSettled(tasks);
     }
   };
 

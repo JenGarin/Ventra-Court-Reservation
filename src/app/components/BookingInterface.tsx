@@ -850,7 +850,7 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
                           <p className="font-semibold">{court?.name || row.courtId}</p>
                           <p>{COURT_SPORT[row.courtId] || 'General'} | {row.type.replace('_', ' ')}</p>
                           <p>{row.date} | {format12Time(row.startTime)} - {format12Time(draft.endTime)}</p>
-                          <p>{toTimeLabel(row.duration)} | PHP {draft.amount.toFixed(0)}</p>
+                          <p>{toTimeLabel(row.duration)} | ₱{draft.amount.toFixed(0)}</p>
                           {unavailable ? <p className="mt-1 text-red-700 dark:text-red-300">{unavailable}</p> : null}
                         </div>
                         <button
@@ -883,7 +883,7 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
                       <div key={row.id} className="rounded-lg bg-white/60 dark:bg-slate-700/60 p-2">
                         <p className="font-semibold">{court?.name || row.courtId}</p>
                         <p>{row.date} | {format12Time(row.startTime)}-{format12Time(draft.endTime)}</p>
-                        <p>{toTimeLabel(row.duration)} | PHP {draft.amount.toFixed(0)}</p>
+                        <p>{toTimeLabel(row.duration)} | ₱{draft.amount.toFixed(0)}</p>
                       </div>
                     );
                   })
@@ -892,7 +892,7 @@ export function BookingInterface({ initialMode = 'standard', quickOnly = false }
               <div className="h-px bg-slate-400/40 dark:bg-slate-600/40 my-3" />
               <div className="flex items-center justify-between text-xl font-bold text-slate-900 dark:text-slate-100">
                 <span>Total Price:</span>
-                <span>PHP {totalPrice.toFixed(0)}</span>
+                <span>₱{totalPrice.toFixed(0)}</span>
               </div>
             </div>
           </div>

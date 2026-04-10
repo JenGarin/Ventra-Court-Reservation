@@ -243,7 +243,7 @@ const rowFromCourt = (value: any) => ({
   peak_hour_rate: value.peakHourRate ?? null,
   status: value.status,
   operating_hours: value.operatingHours ?? { start: "07:00", end: "22:00" },
-  created_at: value.createdAt ?? null,
+  created_at: value.createdAt ?? new Date().toISOString(),
 });
 
 const courtFromRow = (row: any) => ({

@@ -173,7 +173,11 @@ const writeSession = (session: ApiSession | null) => {
   );
 };
 
-const requestEnvelope = async <T>(
+const looksLikeNetworkFailure = (message: string) =>
+  /failed to fetch|networkerror|load failed|request failed/i.test(message);
+
+const fetchEnvelope = async <T>(
+  baseUrl: string,
   path: string,
   options: { method?: string; body?: unknown; auth?: boolean } = {},
 ): Promise<ApiEnvelope<T>> => {
@@ -187,17 +191,24 @@ const requestEnvelope = async <T>(
     headers["x-user-role"] = session.user.role;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     method: options.method || "GET",
     headers,
     body: options.body == null ? undefined : JSON.stringify(options.body),
   });
   const payload = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
   if (!response.ok || !payload?.success) {
-    const message = payload?.error?.message || "Request failed.";
+    const message = payload?.error?.message || `${response.status} ${response.statusText}`.trim() || "Request failed.";
     throw new Error(message);
   }
   return payload;
+};
+
+const requestEnvelope = async <T>(
+  path: string,
+  options: { method?: string; body?: unknown; auth?: boolean } = {},
+): Promise<ApiEnvelope<T>> => {
+  return await fetchEnvelope(API_BASE, path, options);
 };
 
 const request = async <T>(
@@ -218,6 +229,70 @@ export const backendApi = {
   isEnabled: USE_BACKEND_API,
   getSession: readSession,
   clearSession: () => writeSession(null),
+  setSession: (session: {
+    accessToken: string;
+    refreshToken?: string;
+    user: User;
+  } | null) => {
+    writeSession(
+      session
+        ? {
+            accessToken: String(session.accessToken || ""),
+            refreshToken: session.refreshToken ? String(session.refreshToken) : undefined,
+            user: session.user,
+          }
+        : null,
+    );
+  },
+
+  async signupViaServer(
+    email: string,
+    password: string,
+    role: Role = "player",
+    payload: {
+      name?: string;
+      phone?: string;
+      coachProfile?: string;
+      coachExpertise?: string[];
+      verificationMethod?: "certification" | "license" | "experience" | "other";
+      verificationDocumentName?: string;
+      verificationId?: string;
+      verificationNotes?: string;
+      adminCode?: string;
+    } = {},
+  ) {
+    const requestOptions = {
+      method: "POST",
+      auth: false,
+      body: { email, password, role, ...payload },
+    } as const;
+    let data: any;
+    try {
+      data = await request<any>("/auth/signup", requestOptions);
+    } catch (error: any) {
+      const message = String(error?.message || "").trim();
+      const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "");
+      if (!looksLikeNetworkFailure(message) || !supabaseUrl) {
+        throw error;
+      }
+
+      const remoteApiBase = `${supabaseUrl}/functions/v1/server/api/v1`;
+      const payload = await fetchEnvelope<any>(remoteApiBase, "/auth/signup", requestOptions);
+      data = payload.data;
+    }
+    if (data?.pending === true) {
+      return {
+        pending: true,
+        message: String(data?.message || "Coach registration submitted and pending admin verification."),
+      };
+    }
+    return {
+      pending: false,
+      message: String(data?.message || ""),
+      emailConfirmationRequired: Boolean(data?.emailConfirmationRequired),
+      user: mapUser(data),
+    };
+  },
 
   async login(email: string, password: string, expectedRole?: Role) {
     ensureBackendEnabled();
@@ -252,21 +327,7 @@ export const backendApi = {
     } = {},
   ) {
     ensureBackendEnabled();
-    const data = await request<any>("/auth/signup", {
-      method: "POST",
-      auth: false,
-      body: { email, password, role, ...payload },
-    });
-    if (data?.pending === true) {
-      return {
-        pending: true,
-        message: String(data?.message || "Coach registration submitted and pending admin verification."),
-      };
-    }
-    return {
-      pending: false,
-      user: mapUser(data),
-    };
+    return await backendApi.signupViaServer(email, password, role, payload);
   },
 
   async logout() {

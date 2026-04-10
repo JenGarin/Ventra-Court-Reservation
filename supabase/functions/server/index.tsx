@@ -25,11 +25,18 @@ const authMode = (): AuthMode => {
   return raw === "supabase" ? "supabase" : "mock";
 };
 
+const exposeServerErrors = () => {
+  const raw = String(Deno.env.get("DEBUG_API_ERRORS") || "true").trim().toLowerCase();
+  return raw !== "false" && raw !== "0" && raw !== "no";
+};
+
 const supabaseUrl = () => String(Deno.env.get("SUPABASE_URL") || "").trim();
 const supabaseAnonKey = () => String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
 const supabaseServiceRoleKey = () =>
   String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "").trim();
 const adminSignupCode = () => String(Deno.env.get("ADMIN_SIGNUP_CODE") || "").trim();
+const isSupabaseEmailConfirmed = (authUser: any) =>
+  Boolean(authUser?.email_confirmed_at || authUser?.confirmed_at);
 
 const hasSupabaseAuthEnv = () => {
   try {
@@ -901,6 +908,18 @@ const resolveUserIdFromBearerToken = async (token: string): Promise<string> => {
   }
 };
 
+const getSupabaseUserFromBearerToken = async (token: string): Promise<any | null> => {
+  if (!token || authMode() !== "supabase" || !hasSupabaseServiceEnv()) return null;
+  try {
+    const supabase = await supabaseServiceClient();
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error) return null;
+    return data?.user || null;
+  } catch {
+    return null;
+  }
+};
+
 const authContext = async (
   c: any,
 ): Promise<{ user: ApiUser | null; role: Role | null; authErrorCode?: string; authErrorMessage?: string }> => {
@@ -938,7 +957,35 @@ const authContext = async (
   }
   const userId = bearerUserId || headerUserId;
   if (!userId) return { user: null, role: roleHeader || null };
-  const user = (await kv.get(`user:${userId}`)) as ApiUser | null;
+  let user = (await kv.get(`user:${userId}`)) as ApiUser | null;
+  if (!user && bearerUserId) {
+    const bearerUser = await getSupabaseUserFromBearerToken(bearerToken);
+    if (bearerUser?.id) {
+      const metadata = bearerUser.user_metadata || {};
+      const metadataRole = String(metadata?.role || "").trim().toLowerCase();
+      const metadataStatus = String(metadata?.status || "").trim().toLowerCase();
+      const bootstrapRole: Role =
+        metadataRole === "admin" || metadataRole === "staff" || metadataRole === "coach" || metadataRole === "player"
+          ? (metadataRole as Role)
+          : "player";
+      const bootstrapStatus: UserStatus =
+        metadataStatus === "pending" || metadataStatus === "active"
+          ? (metadataStatus as UserStatus)
+          : bootstrapRole === "coach"
+            ? "pending"
+            : "active";
+      user = {
+        id: String(bearerUser.id),
+        email: String(bearerUser.email || "").trim().toLowerCase(),
+        name: String(metadata?.name || metadata?.full_name || bearerUser.email || "User").trim(),
+        role: bootstrapRole,
+        status: bootstrapStatus,
+        phone: String(metadata?.phone || "").trim() || undefined,
+        createdAt: nowIso(),
+      };
+      await kv.set(`user:${user.id}`, user);
+    }
+  }
   if (!user) {
     return {
       user: null,
@@ -1103,13 +1150,44 @@ const notifyAdminsOfCoachApplication = async (coach: ApiUser) => {
     ),
   );
 };
+const isSyntheticAuditActor = (actorId: string) => {
+  const normalizedActorId = String(actorId || "").trim();
+  return (
+    !normalizedActorId ||
+    normalizedActorId === "anonymous" ||
+    normalizedActorId.startsWith("system:") ||
+    normalizedActorId.startsWith("service:")
+  );
+};
 const writeAuditLog = async (payload: Omit<ApiAuditLog, "id" | "createdAt">) => {
+  const actorId = String(payload.actorId || "").trim();
+  const existingActor = actorId ? ((await kv.get(`user:${actorId}`)) as ApiUser | null) : null;
+
+  if (!existingActor) {
+    if (isSyntheticAuditActor(actorId)) {
+      console.warn("Skipping audit log for synthetic actor without registered user.", {
+        action: payload.action,
+        entityType: payload.entityType,
+        entityId: payload.entityId,
+        actorId,
+      });
+      return null;
+    }
+    console.warn("Skipping audit log for unregistered actor.", {
+      action: payload.action,
+      entityType: payload.entityType,
+      entityId: payload.entityId,
+      actorId,
+    });
+    return null;
+  }
+
   const log: ApiAuditLog = {
     id: id(),
     action: payload.action,
     entityType: payload.entityType,
     entityId: payload.entityId,
-    actorId: payload.actorId,
+    actorId,
     actorRole: payload.actorRole,
     metadata: payload.metadata,
     createdAt: nowIso(),
@@ -1186,6 +1264,10 @@ const publicAppBaseUrl = () => {
   } catch {
     return null;
   }
+};
+const authCallbackUrl = () => {
+  const baseUrl = publicAppBaseUrl();
+  return baseUrl ? `${baseUrl}/auth/callback` : undefined;
 };
 const buildReceiptUrl = (booking: ApiBooking) => {
   const baseUrl = publicAppBaseUrl();
@@ -1487,6 +1569,29 @@ app.post(`${API_BASE}/auth/login`, async (c) => {
     }
 
     const authUser = data.user;
+    if (!isSupabaseEmailConfirmed(authUser)) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // Ignore local sign-out issues after rejecting login.
+      }
+      await writeAuditLog({
+        action: "auth_login_failed",
+        entityType: "auth",
+        entityId: String(authUser.id || email || "unknown"),
+        actorId: String(authUser.id || "anonymous"),
+        actorRole: isRole(String(authUser.user_metadata?.role || "").trim().toLowerCase())
+          ? (String(authUser.user_metadata?.role || "").trim().toLowerCase() as Role)
+          : "player",
+        metadata: {
+          reason: "email_not_confirmed",
+          provider: "supabase",
+          email,
+          requestId: requestIdFromContext(c),
+        },
+      });
+      return jsonErr(c, 403, "EMAIL_NOT_CONFIRMED", "Please confirm your email before signing in.");
+    }
     const authUserId = String(authUser.id || "").trim();
     const existing = (await kv.get(`user:${authUserId}`)) as ApiUser | null;
     const nameFromMetadata = String(authUser.user_metadata?.name || "").trim();
@@ -1725,89 +1830,6 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
   }
 
   if (authMode() === "supabase") {
-    // Prefer service-role createUser for signups in production so the app does not depend on SMTP/email confirmation.
-    // Falls back to anon signUp when service env is not provided.
-    if (hasSupabaseServiceEnv()) {
-      const admin = await supabaseServiceClient();
-      const { data, error } = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
-          name,
-          phone,
-          role,
-          status,
-        },
-      });
-      if (error || !data?.user?.id) {
-        await writeAuditLog({
-          action: "auth_signup_failed",
-          entityType: "auth",
-          entityId: email,
-          actorId: "anonymous",
-          actorRole: "player",
-          metadata: {
-            reason: "provider_error",
-            provider: "supabase_admin_create_user",
-            email,
-            role,
-            message: error?.message || "signup_failed",
-            requestId: requestIdFromContext(c),
-          },
-        });
-        const message = error?.message || "Signup failed.";
-        const isConflict =
-          message.toLowerCase().includes("already registered") ||
-          message.toLowerCase().includes("already exists") ||
-          message.toLowerCase().includes("exists");
-        return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
-      }
-
-      const created: ApiUser = {
-        id: String(data.user.id),
-        email,
-        name,
-        role,
-        status,
-        phone: phone || undefined,
-        coachProfile: role === "coach" ? coachDraft!.coachProfile : undefined,
-        coachExpertise: role === "coach" ? (coachDraft!.coachExpertise || []) : undefined,
-        coachVerificationStatus: role === "coach" ? "pending" : undefined,
-        coachVerificationMethod: role === "coach"
-          ? (coachDraft!.verificationMethod as ApiUser["coachVerificationMethod"])
-          : undefined,
-        coachVerificationDocumentName: role === "coach" ? coachDraft!.verificationDocumentName : undefined,
-        coachVerificationId: role === "coach" ? coachDraft!.verificationId : undefined,
-        coachVerificationNotes: role === "coach" ? coachDraft!.verificationNotes : undefined,
-        coachVerificationSubmittedAt: role === "coach" ? nowIso() : undefined,
-        createdAt: nowIso(),
-      };
-      await kv.set(`user:${created.id}`, created);
-      await writeAuditLog({
-        action: "auth_signup_succeeded",
-        entityType: "auth",
-        entityId: created.id,
-        actorId: created.id,
-        actorRole: created.role,
-        metadata: {
-          provider: "supabase_admin_create_user",
-          email,
-          roleAssigned: role,
-          requestedRole,
-          requestId: requestIdFromContext(c),
-        },
-      });
-      if (role === "coach") {
-        return jsonOk(c, {
-          pending: true,
-          role: "coach",
-          message: "Your coach account request is under review by the administrator.",
-        });
-      }
-      return jsonOk(c, created);
-    }
-
     if (!hasSupabaseAuthEnv()) {
       return jsonErr(
         c,
@@ -1822,6 +1844,7 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       email,
       password,
       options: {
+        emailRedirectTo: authCallbackUrl(),
         data: {
           name,
           phone,
@@ -1893,10 +1916,14 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
       return jsonOk(c, {
         pending: true,
         role: "coach",
-        message: "Your coach account request is under review by the administrator.",
+        message: "Coach account created. Check your email to confirm your address. After confirming, an administrator still needs to approve your coach account before you can sign in.",
       });
     }
-    return jsonOk(c, created);
+    return jsonOk(c, {
+      ...created,
+      emailConfirmationRequired: true,
+      message: "Account created. Check your email to confirm your address before signing in.",
+    });
   }
   const newUser: ApiUser = {
     id: id(),
@@ -6777,16 +6804,35 @@ app.get(`${API_BASE}/health`, async (c) =>
   }),
 );
 
-app.notFound((c) => jsonErr(c, 404, "NOT_FOUND", "Route not found."));
+app.notFound((c) =>
+  jsonErr(c, 404, "NOT_FOUND", "Route not found.", {
+    path: c.req.path,
+    method: c.req.method,
+  }),
+);
 
 app.onError((err, c) => {
+  const requestId = requestIdFromContext(c);
+  const message = err instanceof Error ? err.message : String(err);
   console.error("Unhandled API error", {
-    requestId: requestIdFromContext(c),
+    requestId,
     method: c.req.method,
     path: c.req.path,
-    error: err instanceof Error ? err.message : String(err),
+    error: message,
   });
-  return jsonErr(c, 500, "INTERNAL_ERROR", "An unexpected error occurred.");
+  return jsonErr(
+    c,
+    500,
+    "INTERNAL_ERROR",
+    exposeServerErrors() ? message || "An unexpected error occurred." : "An unexpected error occurred.",
+    exposeServerErrors()
+      ? {
+          requestId,
+          method: c.req.method,
+          path: c.req.path,
+        }
+      : {},
+  );
 });
 
 if (import.meta.main) {

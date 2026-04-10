@@ -188,7 +188,7 @@ export function DashboardDesign() {
                       <p className="font-semibold text-slate-600 dark:text-slate-400">Price</p>
                       <div className="text-right">
                         <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                          PHP {Math.max(25, Math.round((court.hourlyRate || 0) / 20))}
+                          ₱{Math.max(25, Math.round((court.hourlyRate || 0) / 20))}
                         </p>
                         <p className="text-sm font-medium text-slate-500 dark:text-slate-400">per hour</p>
                       </div>

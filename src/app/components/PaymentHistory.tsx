@@ -161,7 +161,7 @@ Receipt Token: ${String(receipt?.receiptToken || '')}
 Date: ${String(receipt?.booking?.date || format(transaction.date, 'yyyy-MM-dd'))} ${String(receipt?.booking?.startTime || '')}
 Court: ${String(receipt?.court?.name || 'Unknown Court')}
 Player: ${String(receipt?.player?.name || currentUser?.name || '')}
-Amount: PHP ${Number(receipt?.amount ?? transaction.amount).toFixed(2)}
+Amount: ₱${Number(receipt?.amount ?? transaction.amount).toFixed(2)}
 Payment Status: ${String(receipt?.paymentStatus || transaction.status).toUpperCase()}
 Booking Status: ${String(receipt?.bookingStatus || '').toUpperCase()}
 `.trim();
@@ -179,7 +179,7 @@ INVOICE
 Reference: ${transaction.reference}
 Date: ${format(transaction.date, 'MMM dd, yyyy HH:mm')}
 Description: ${transaction.description}
-Amount: PHP ${transaction.amount.toFixed(2)}
+Amount: ₱${transaction.amount.toFixed(2)}
 Status: ${transaction.status.toUpperCase()}
 
 Thank you for your business!
@@ -209,7 +209,7 @@ Thank you for your business!
       const status = String(details?.status || transaction.status).toUpperCase();
       const reference = String(details?.providerReference || details?.id || transaction.reference);
       const amount = Number(details?.amount ?? transaction.amount).toFixed(2);
-      toast.success(`Payment ${reference}: ${status} (PHP ${amount})`);
+      toast.success(`Payment ${reference}: ${status} (₱${amount})`);
     } catch (error) {
       console.error('Failed to load payment details:', error);
       toast.error('Failed to load payment details.');
@@ -263,7 +263,7 @@ Thank you for your business!
         <div className="bg-teal-600 rounded-2xl p-8 text-white shadow-lg shadow-teal-100 dark:shadow-none flex items-center justify-between">
           <div>
             <p className="text-teal-100 mb-1">Total Spent</p>
-            <h2 className="text-4xl font-bold">PHP {totalSpent.toLocaleString()}</h2>
+            <h2 className="text-4xl font-bold">₱{totalSpent.toLocaleString()}</h2>
           </div>
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
             <Receipt size={32} />
@@ -335,7 +335,7 @@ Thank you for your business!
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right">
-                      <p className="font-bold text-slate-900 dark:text-white">PHP {t.amount.toFixed(2)}</p>
+                      <p className="font-bold text-slate-900 dark:text-white">₱{t.amount.toFixed(2)}</p>
                       <p className={`text-xs font-bold uppercase ${t.status === 'paid' ? 'text-emerald-600' : 'text-slate-400'}`}>{t.status}</p>
                     </div>
                     {(t.status === 'paid' || (usingBackendApi && !!t.bookingId)) && (

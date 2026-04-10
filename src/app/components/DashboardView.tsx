@@ -67,7 +67,7 @@ export function DashboardView() {
   const stats = [
     {
       title: 'Total Revenue',
-      value: `PHP ${totalRevenue.toLocaleString()}`,
+      value: `₱${totalRevenue.toLocaleString()}`,
       change: getChangeTag(12.5),
       icon: PhilippinePeso,
     },
