@@ -2155,12 +2155,35 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
             try {
               const authUser = await findSupabaseAuthUserByEmail(email);
               if (authUser?.id) {
-                return jsonErr(
-                  c,
-                  409,
-                  "CONFLICT",
-                  "Email already exists in Supabase Auth. This usually means the account was created earlier or deleted locally without removing the auth user.",
-                );
+                try {
+                  await supabase.auth.resetPasswordForEmail(email);
+                  await writeAuditLog({
+                    action: "auth_signup_recovered_existing_auth_user",
+                    entityType: "auth",
+                    entityId: String(authUser.id),
+                    actorId: "anonymous",
+                    actorRole: "player",
+                    metadata: {
+                      email,
+                      requestedRole,
+                      provider: "supabase",
+                      requestId: requestIdFromContext(c),
+                    },
+                  });
+                  return jsonOk(c, {
+                    recovered: true,
+                    emailConfirmationRequired: false,
+                    message:
+                      "This email already has an authentication account. We sent a password reset email so you can restore access and sign in again.",
+                  });
+                } catch {
+                  return jsonErr(
+                    c,
+                    409,
+                    "CONFLICT",
+                    "Email already exists in Supabase Auth. Use Forgot Password to restore access to this email.",
+                  );
+                }
               }
             } catch {
               // Fall back to the original provider message if the auth lookup fails.

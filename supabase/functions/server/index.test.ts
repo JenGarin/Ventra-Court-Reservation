@@ -644,13 +644,14 @@ Deno.test("auth signup in supabase mode does not block legacy local users", asyn
   }
 });
 
-Deno.test("auth signup explains ghost Supabase auth conflicts", async () => {
+Deno.test("auth signup recovers ghost Supabase auth conflicts by sending reset email", async () => {
   __resetForTests();
   __resetSupabaseClientsForTests();
   const prevAuthMode = Deno.env.get("AUTH_MODE");
   const prevUrl = Deno.env.get("SUPABASE_URL");
   const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const prevServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const resetEmails: string[] = [];
 
   Deno.env.set("AUTH_MODE", "supabase");
   Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
@@ -665,6 +666,10 @@ Deno.test("auth signup explains ghost Supabase auth conflicts", async () => {
             data: { user: null },
             error: { message: "User already registered" },
           }),
+          resetPasswordForEmail: async (email: string) => {
+            resetEmails.push(email);
+            return { data: {}, error: null };
+          },
         },
       };
     }
@@ -697,10 +702,11 @@ Deno.test("auth signup explains ghost Supabase auth conflicts", async () => {
       }),
     });
     const payload = await json(res);
-    assertEquals(res.status, 409);
+    assertEquals(res.status, 200);
+    assertEquals(resetEmails, ["ghost-player@court.com"]);
     assertEquals(
-      payload.error.message,
-      "Email already exists in Supabase Auth. This usually means the account was created earlier or deleted locally without removing the auth user.",
+      payload.data.message,
+      "This email already has an authentication account. We sent a password reset email so you can restore access and sign in again.",
     );
   } finally {
     __resetSupabaseClientsForTests();
