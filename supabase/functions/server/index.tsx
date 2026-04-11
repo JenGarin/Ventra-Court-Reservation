@@ -155,6 +155,23 @@ const createOrRepairConfirmedSupabaseAuthUser = async (payload: {
   };
 };
 
+const deleteSupabaseAuthUserByEmail = async (email: string) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail || !hasSupabaseServiceEnv()) return { deleted: false, authUserId: "" };
+  const existing = await findSupabaseAuthUserByEmail(normalizedEmail);
+  if (!existing?.id) {
+    return { deleted: false, authUserId: "" };
+  }
+
+  const admin = await supabaseServiceClient();
+  const { error } = await admin.auth.admin.deleteUser(String(existing.id));
+  if (error) throw error;
+  return {
+    deleted: true,
+    authUserId: String(existing.id),
+  };
+};
+
 type ApiUser = {
   id: string;
   email: string;
@@ -2134,6 +2151,21 @@ app.post(`${API_BASE}/auth/signup`, async (c) => {
             lowerMessage.includes("already registered") ||
             lowerMessage.includes("already exists") ||
             lowerMessage.includes("exists");
+          if (isConflict && hasSupabaseServiceEnv()) {
+            try {
+              const authUser = await findSupabaseAuthUserByEmail(email);
+              if (authUser?.id) {
+                return jsonErr(
+                  c,
+                  409,
+                  "CONFLICT",
+                  "Email already exists in Supabase Auth. This usually means the account was created earlier or deleted locally without removing the auth user.",
+                );
+              }
+            } catch {
+              // Fall back to the original provider message if the auth lookup fails.
+            }
+          }
           return jsonErr(c, isConflict ? 409 : 400, isConflict ? "CONFLICT" : "VALIDATION_ERROR", message);
         }
       } else {
@@ -3429,6 +3461,33 @@ app.delete(`${API_BASE}/admin/users/:id`, async (c) => {
     const adminCount = users.filter((user) => user.role === "admin").length;
     if (adminCount <= 1) {
       return jsonErr(c, 409, "CONFLICT", "Cannot delete the last admin account.");
+    }
+  }
+
+  if (effectiveAuthMode() === "supabase" && hasSupabaseServiceEnv()) {
+    try {
+      await deleteSupabaseAuthUserByEmail(target.email);
+    } catch (error: any) {
+      await writeAuditLog({
+        action: "admin_user_delete_failed",
+        entityType: "user",
+        entityId: targetId,
+        actorId: result.user.id,
+        actorRole: result.role,
+        metadata: {
+          requestId: requestIdFromContext(c),
+          deletedRole: target.role,
+          deletedEmail: target.email,
+          reason: "supabase_auth_delete_failed",
+          message: error?.message || "delete_failed",
+        },
+      });
+      return jsonErr(
+        c,
+        502,
+        "PROVIDER_ERROR",
+        "User could not be deleted from Supabase Auth. Please try again so the account does not remain partially deleted.",
+      );
     }
   }
 

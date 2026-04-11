@@ -313,6 +313,63 @@ Deno.test("admin/users delete removes account and prevents login", async () => {
   assertEquals(loginPayload.error.code, "UNAUTHENTICATED");
 });
 
+Deno.test("admin/users delete also removes matching Supabase auth user in supabase mode", async () => {
+  __resetForTests();
+  __resetSupabaseClientsForTests();
+  const prevAuthMode = Deno.env.get("AUTH_MODE");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const prevServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const deletedAuthIds: string[] = [];
+
+  Deno.env.set("AUTH_MODE", "supabase");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.set("SUPABASE_ANON_KEY", "anon-key");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+
+  __setSupabaseCreateClientFactoryForTests((_url, key) => {
+    if (key === "service-role-key") {
+      return {
+        auth: {
+          admin: {
+            listUsers: async () => ({
+              data: {
+                users: [{ id: "supabase-player-1", email: "player@court.com" }],
+                nextPage: null,
+              },
+              error: null,
+            }),
+            deleteUser: async (id: string) => {
+              deletedAuthIds.push(id);
+              return { data: { user: null }, error: null };
+            },
+          },
+        },
+      };
+    }
+    return {};
+  });
+
+  try {
+    const deleteRes = await authed("/api/v1/admin/users/player-1", "admin-1", "admin", "DELETE");
+    const deletePayload = await json(deleteRes);
+    assertEquals(deleteRes.status, 200);
+    assertEquals(deletePayload.data.deleted, true);
+    assertEquals(deletedAuthIds, ["supabase-player-1"]);
+    assertEquals(await kv.get("user:player-1"), null);
+  } finally {
+    __resetSupabaseClientsForTests();
+    if (prevAuthMode == null) Deno.env.delete("AUTH_MODE");
+    else Deno.env.set("AUTH_MODE", prevAuthMode);
+    if (prevUrl == null) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
+    else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+    if (prevServiceKey == null) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", prevServiceKey);
+  }
+});
+
 Deno.test("admin user patch writes audit log entry", async () => {
   __resetForTests();
   const requestId = "req-admin-user-patch-audit";
@@ -584,6 +641,77 @@ Deno.test("auth signup in supabase mode does not block legacy local users", asyn
     else Deno.env.set("SUPABASE_URL", prevUrl);
     if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
     else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+  }
+});
+
+Deno.test("auth signup explains ghost Supabase auth conflicts", async () => {
+  __resetForTests();
+  __resetSupabaseClientsForTests();
+  const prevAuthMode = Deno.env.get("AUTH_MODE");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const prevServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  Deno.env.set("AUTH_MODE", "supabase");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.set("SUPABASE_ANON_KEY", "anon-key");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+
+  __setSupabaseCreateClientFactoryForTests((_url, key) => {
+    if (key === "anon-key") {
+      return {
+        auth: {
+          signUp: async () => ({
+            data: { user: null },
+            error: { message: "User already registered" },
+          }),
+        },
+      };
+    }
+    if (key === "service-role-key") {
+      return {
+        auth: {
+          admin: {
+            listUsers: async () => ({
+              data: {
+                users: [{ id: "ghost-auth-1", email: "ghost-player@court.com" }],
+                nextPage: null,
+              },
+              error: null,
+            }),
+          },
+        },
+      };
+    }
+    return {};
+  });
+
+  try {
+    const res = await app.request("http://local.test/api/v1/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "ghost-player@court.com",
+        password: "player123",
+        role: "player",
+      }),
+    });
+    const payload = await json(res);
+    assertEquals(res.status, 409);
+    assertEquals(
+      payload.error.message,
+      "Email already exists in Supabase Auth. This usually means the account was created earlier or deleted locally without removing the auth user.",
+    );
+  } finally {
+    __resetSupabaseClientsForTests();
+    if (prevAuthMode == null) Deno.env.delete("AUTH_MODE");
+    else Deno.env.set("AUTH_MODE", prevAuthMode);
+    if (prevUrl == null) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnonKey == null) Deno.env.delete("SUPABASE_ANON_KEY");
+    else Deno.env.set("SUPABASE_ANON_KEY", prevAnonKey);
+    if (prevServiceKey == null) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", prevServiceKey);
   }
 });
 

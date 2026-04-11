@@ -274,7 +274,7 @@ export function SignUp() {
               <Lock className="w-5 h-5 text-slate-500 absolute left-3 top-2.5" />
               <button
                 type="button"
-                className="absolute right-2 top-2 text-gray-500"
+                className="absolute inset-y-0 right-0 flex items-center justify-center px-3 text-slate-500 hover:text-slate-700"
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
@@ -352,8 +352,8 @@ export function SignUp() {
             </>
           )}
 
-          <div className="flex items-start gap-2 pt-2">
-            <div className="flex items-center h-5">
+          <label htmlFor="terms" className="flex items-center gap-3 pt-2 text-base text-slate-900 leading-relaxed cursor-pointer">
+            <span className="flex items-center justify-center shrink-0">
               <input
                 id="terms"
                 type="checkbox"
@@ -361,8 +361,8 @@ export function SignUp() {
                 onChange={(e) => setTermsAccepted(e.target.checked)}
                 className="w-4 h-4 border border-gray-300 rounded bg-gray-50 focus:ring-3 focus:ring-green-300"
               />
-            </div>
-            <label htmlFor="terms" className="text-base text-slate-900">
+            </span>
+            <span>
               I agree to the{' '}
               <Link
                 to={`/terms-of-service?returnTo=${returnTo}`}
@@ -377,8 +377,8 @@ export function SignUp() {
               >
                 Privacy Policy
               </Link>
-            </label>
-          </div>
+            </span>
+          </label>
 
           <button
             type="submit"
