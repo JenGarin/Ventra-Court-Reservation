@@ -44,8 +44,8 @@ export function AuthCallback() {
       ) {
         localStorage.removeItem('ventra_oauth_email_link_pending');
         localStorage.removeItem('ventra_oauth_confirmation_pending');
-        localStorage.setItem(ACCOUNT_CREATED_NOTICE_KEY, 'Account created successfully. You can now use your new account.');
-        toast.success('Account created successfully.');
+        localStorage.setItem(ACCOUNT_CREATED_NOTICE_KEY, 'Email link confirmed successfully. You can now continue to your dashboard.');
+        toast.success('Email link confirmed successfully.');
         navigate('/dashboard', { replace: true });
         return;
       }

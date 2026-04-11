@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useApp } from '@/context/AppContext';
-import { LogIn, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { LogIn, Eye, EyeOff, UserPlus, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ACCOUNT_CREATED_NOTICE_KEY = 'ventra_account_created_notice';
@@ -25,7 +25,7 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const { currentUser, login, signInWithProvider } = useApp();
+  const { currentUser, login, signInWithProvider, sendEmailLink } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [rememberMe, setRememberMe] = useState(!!localStorage.getItem('rememberedEmail'));
@@ -37,6 +37,7 @@ export function Login() {
   const roleLabel = selectedRole ? selectedRole.toLowerCase() : 'player';
   const roleArticle = roleLabel === 'admin' ? 'an' : 'a';
   const pendingOauthConfirmation = localStorage.getItem('ventra_oauth_confirmation_pending');
+  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
 
   useEffect(() => {
     if (selectedRole) return;
@@ -104,6 +105,33 @@ export function Login() {
     if (!result.success) {
       setError(result.message || 'Unable to continue with social sign-in.');
       setLoading(false);
+    }
+  };
+
+  const handleEmailLinkSignIn = async () => {
+    setError('');
+    setEmailLinkLoading(true);
+    try {
+      if (!selectedRole) {
+        setError('Please choose an account type first.');
+        return;
+      }
+      const result = await sendEmailLink(email, selectedRole);
+      if (result.success) {
+        if (rememberMe) {
+          localStorage.setItem('rememberedEmail', email);
+        } else {
+          localStorage.removeItem('rememberedEmail');
+        }
+        setSuccessNotice(result.message || 'We sent an email link to your inbox.');
+        toast.success(result.message || 'We sent an email link to your inbox.');
+      } else {
+        const nextMessage = result.message || 'Unable to send an email link.';
+        setError(nextMessage);
+        toast.error(nextMessage);
+      }
+    } finally {
+      setEmailLinkLoading(false);
     }
   };
 
@@ -210,6 +238,24 @@ export function Login() {
               <LogIn className="w-5 h-5" />
             )}
             {loading ? 'Signing In...' : 'Sign In'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleEmailLinkSignIn}
+            disabled={loading || emailLinkLoading}
+            className="w-full border border-teal-700 bg-teal-50 text-teal-900 py-2.5 rounded-lg shadow-sm hover:shadow-md hover:bg-teal-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            aria-busy={emailLinkLoading}
+          >
+            {emailLinkLoading ? (
+              <svg className="animate-spin h-5 w-5 text-teal-700" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+            ) : (
+              <Mail className="w-5 h-5" />
+            )}
+            {emailLinkLoading ? 'Sending Link...' : 'Send me an email link'}
           </button>
         </form>
 
