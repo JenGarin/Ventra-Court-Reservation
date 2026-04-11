@@ -88,7 +88,6 @@ interface AppContextType {
   unreadNotificationCount: number;
   login: (email: string, password: string, expectedRole?: User['role']) => Promise<{ success: boolean; message?: string }>;
   signup: (email: string, password: string, role?: string, payload?: SignupPayload) => Promise<{ success: boolean; message?: string }>;
-  sendEmailLink: (email: string, role?: string) => Promise<{ success: boolean; message?: string }>;
   signInWithProvider: (
     provider: 'google' | 'facebook',
     role?: string,
@@ -854,54 +853,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Signup failed.' };
-    }
-  };
-
-  const sendEmailLink = async (
-    email: string,
-    role: string = 'player'
-  ): Promise<{ success: boolean; message?: string }> => {
-    const normalizedEmail = normalizeEmail(email);
-    if (!usingBackendApi) {
-      return { success: false, message: backendRequiredMessage('send an email link') };
-    }
-    if (!oauthEnabled) {
-      return { success: false, message: 'Supabase auth is not enabled.' };
-    }
-    if (!normalizedEmail) {
-      return { success: false, message: 'Email is required.' };
-    }
-
-    try {
-      localStorage.setItem(STORAGE_KEYS.OAUTH_ROLE, role);
-      localStorage.setItem(STORAGE_KEYS.OAUTH_FLOW, 'signin');
-      localStorage.setItem(STORAGE_KEYS.OAUTH_EMAIL_LINK_PENDING, normalizedEmail);
-      localStorage.removeItem(STORAGE_KEYS.OAUTH_CONFIRMATION_PENDING);
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email: normalizedEmail,
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: getEmailLinkCallbackUrl(),
-        },
-      });
-
-      if (error) {
-        localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
-        localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
-        localStorage.removeItem(STORAGE_KEYS.OAUTH_EMAIL_LINK_PENDING);
-        return { success: false, message: error.message };
-      }
-
-      return {
-        success: true,
-        message: 'We sent an email link to your inbox. Open it to sign in.',
-      };
-    } catch (error: any) {
-      localStorage.removeItem(STORAGE_KEYS.OAUTH_FLOW);
-      localStorage.removeItem(STORAGE_KEYS.OAUTH_ROLE);
-      localStorage.removeItem(STORAGE_KEYS.OAUTH_EMAIL_LINK_PENDING);
-      return { success: false, message: error?.message || 'Failed to send email link.' };
     }
   };
 
@@ -1990,7 +1941,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         unreadNotificationCount,
         login,
         signup,
-        sendEmailLink,
         signInWithProvider,
         logout,
         addCourt,
